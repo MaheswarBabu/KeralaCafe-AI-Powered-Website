@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Login{% endblock %}
+{% block content %}
+
+<section class="th-section">
+  <div class="th-container" style="max-width:440px;">
+    <span class="th-eyebrow">Welcome back</span>
+    <h2>Login</h2>
+
+    <div class="th-card" style="margin-top:20px;">
+      <form id="loginForm">
+        <div class="th-field">
+          <label>Email or Phone</label>
+          <input type="text" name="identifier" required autocomplete="username">
+        </div>
+        <div class="th-field" style="margin-top:16px;">
+          <label>Password</label>
+          <input type="password" name="password" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" style="margin-top:20px;">Login</button>
+      </form>
+      <p id="loginError" style="color:var(--chili-deep); font-size:0.88rem; margin-top:12px; display:none;"></p>
+      <p style="margin-top:18px; font-size:0.9rem; text-align:center;">
+        New here? <a href="/register?next={{ next }}" style="color:var(--chili-deep); font-weight:600;">Create an account</a>
+      </p>
+    </div>
+  </div>
+</section>
+
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const payload = Object.fromEntries(fd.entries());
+  const errEl = document.getElementById('loginError');
+  errEl.style.display = 'none';
+
+  const res = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  if (res.ok) {
+    window.location.href = "{{ next }}";
+  } else {
+    const err = await res.json();
+    errEl.textContent = err.detail || 'Login failed.';
+    errEl.style.display = 'block';
+  }
+});
+</script>
+{% endblock %}

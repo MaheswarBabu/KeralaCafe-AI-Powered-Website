@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Admin - Menu{% endblock %}
+{% block content %}
+
+<section class="th-section">
+  <div class="th-container">
+    <span class="th-eyebrow">🔑 Admin</span>
+    <h2>Menu Management</h2>
+
+    <div class="th-filters" style="margin:20px 0;">
+      <a href="/admin/orders" class="th-chip">Orders</a>
+      <a href="/admin/reservations" class="th-chip">Reservations</a>
+      <a href="/admin/menu" class="th-chip active">Menu</a>
+    </div>
+
+    <div class="th-card" style="margin-bottom:28px;">
+      <h3 style="margin-bottom:14px;">Add New Dish</h3>
+      <form method="post" action="/admin/menu/add" enctype="multipart/form-data">
+        <div class="th-form-grid">
+          <div class="th-field">
+            <label>Dish Name</label>
+            <input type="text" name="food_name" required>
+          </div>
+          <div class="th-field">
+            <label>Category</label>
+            <input type="text" name="category" placeholder="Starters / Main Course / Desserts / Beverages" required>
+          </div>
+          <div class="th-field">
+            <label>Price (₹)</label>
+            <input type="number" name="price" step="0.01" min="0" required>
+          </div>
+          <div class="th-field">
+            <label>Spice Level (1-3)</label>
+            <input type="number" name="spice_level" min="1" max="3" value="1" required>
+          </div>
+        </div>
+        <div class="th-field" style="margin-top:16px;">
+          <label>Description</label>
+          <textarea name="description" rows="2"></textarea>
+        </div>
+        <div class="th-form-grid" style="margin-top:16px;">
+          <div class="th-field">
+            <label>Image URL (optional if uploading a file)</label>
+            <input type="text" name="image_url" placeholder="/static/images/dish.jpg or https://...">
+          </div>
+          <div class="th-field">
+            <label>Or Upload Image</label>
+            <input type="file" name="image_file" accept="image/*">
+          </div>
+        </div>
+        <div style="display:flex; gap:24px; margin-top:16px;">
+          <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem;"><input type="checkbox" name="is_veg" checked> Vegetarian</label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem;"><input type="checkbox" name="availability" checked> Available</label>
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-top:20px;">+ Add Dish</button>
+      </form>
+    </div>
+
+    <h3 style="margin-bottom:14px;">Current Menu</h3>
+    <div class="th-card-grid">
+      {% for food in foods %}
+      <div class="th-food-card">
+        {% if food.image_url %}
+        <div class="th-food-media" style="font-size:0;">
+          <img src="{{ food.image_url }}" alt="{{ food.food_name }}" style="width:100%; height:100%; object-fit:cover;"
+               onerror="this.parentElement.style.fontSize='2.4rem'; this.parentElement.textContent='🍽️';">
+        </div>
+        {% else %}
+        <div class="th-food-media">🍽️</div>
+        {% endif %}
+        <div class="th-food-body">
+          <div class="th-food-top">
+            <span class="th-food-name">{{ food.food_name }}</span>
+            <span class="th-price">₹{{ food.price|int }}</span>
+          </div>
+          <div class="th-food-meta">
+            <span class="th-tag {{ 'th-tag-veg' if food.is_veg else 'th-tag-nonveg' }}">{{ 'VEG' if food.is_veg else 'NON-VEG' }}</span>
+            <span class="th-tag th-tag-rating">{{ food.category }}</span>
+            {% if not food.availability %}<span class="th-tag th-tag-nonveg">UNAVAILABLE</span>{% endif %}
+          </div>
+          <button class="btn btn-sm btn-dark btn-block" onclick="document.getElementById('edit-{{ food.food_id }}').classList.toggle('open-panel')">Edit</button>
+
+          <div id="edit-{{ food.food_id }}" class="admin-panel">
+            <form method="post" action="/admin/menu/{{ food.food_id }}/edit" enctype="multipart/form-data">
+              <div class="th-field">
+                <label>Dish Name</label>
+                <input type="text" name="food_name" value="{{ food.food_name }}" required>
+              </div>
+              <div class="th-field" style="margin-top:10px;">
+                <label>Category</label>
+                <input type="text" name="category" value="{{ food.category }}" required>
+              </div>
+              <div class="th-field" style="margin-top:10px;">
+                <label>Price (₹)</label>
+                <input type="number" name="price" step="0.01" value="{{ food.price }}" required>
+              </div>
+              <div class="th-field" style="margin-top:10px;">
+                <label>Spice Level (1-3)</label>
+                <input type="number" name="spice_level" min="1" max="3" value="{{ food.spice_level }}" required>
+              </div>
+              <div class="th-field" style="margin-top:10px;">
+                <label>Description</label>
+                <textarea name="description" rows="2">{{ food.description }}</textarea>
+              </div>
+              <div class="th-field" style="margin-top:10px;">
+                <label>Image URL</label>
+                <input type="text" name="image_url" value="{{ food.image_url }}">
+              </div>
+              <div class="th-field" style="margin-top:10px;">
+                <label>Or Upload New Image</label>
+                <input type="file" name="image_file" accept="image/*">
+              </div>
+              <div style="display:flex; gap:20px; margin-top:12px;">
+                <label style="display:flex; align-items:center; gap:6px; font-size:0.85rem;"><input type="checkbox" name="is_veg" {{ 'checked' if food.is_veg }}> Vegetarian</label>
+                <label style="display:flex; align-items:center; gap:6px; font-size:0.85rem;"><input type="checkbox" name="availability" {{ 'checked' if food.availability }}> Available</label>
+              </div>
+              <button type="submit" class="btn btn-sm btn-primary" style="margin-top:12px;">Save Changes</button>
+            </form>
+            <form method="post" action="/admin/menu/{{ food.food_id }}/delete" style="margin-top:10px;" onsubmit="return confirm('Delete {{ food.food_name }}? This cannot be undone.');">
+              <button type="submit" class="btn btn-sm btn-block" style="background:var(--chili); color:#fff;">Delete Dish</button>
+            </form>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<style>
+.admin-panel { display:none; margin-top:14px; padding-top:14px; border-top:1px dashed var(--line); }
+.admin-panel.open-panel { display:block; }
+</style>
+
+{% endblock %}

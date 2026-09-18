@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Checkout{% endblock %}
+{% block content %}
+
+<section class="th-section">
+  <div class="th-container" style="max-width:640px;">
+    <span class="th-eyebrow">📍 Almost there</span>
+    <h2>Checkout</h2>
+
+    <div class="th-card" style="margin-top:20px;">
+      <div id="orderSummary"></div>
+      <hr class="th-divider">
+      <form id="checkoutForm">
+        <div class="th-form-grid">
+          <div class="th-field">
+            <label>Customer Name</label>
+            <input type="text" name="customer_name" value="{{ user.name }}" required>
+          </div>
+          <div class="th-field">
+            <label>Phone Number</label>
+            <input type="tel" name="phone" value="{{ user.phone }}" required>
+          </div>
+        </div>
+        <div class="th-field" style="margin-top:16px;">
+          <label>Email (order confirmation sent here)</label>
+          <input type="email" name="email" value="{{ user.email }}" required>
+        </div>
+        <div class="th-field" style="margin-top:16px;">
+          <label>Delivery Address</label>
+          <textarea name="address" rows="2" required></textarea>
+        </div>
+        <div class="th-form-grid" style="margin-top:16px;">
+          <div class="th-field">
+            <label>Landmark</label>
+            <input type="text" name="landmark">
+          </div>
+          <div class="th-field">
+            <label>Payment Method</label>
+            <select name="payment_method">
+              <option value="cod">Cash on Delivery</option>
+              <option value="upi">UPI / Online Payment (simulated)</option>
+            </select>
+          </div>
+        </div>
+        <div class="th-field" style="margin-top:16px;">
+          <label>Delivery Instructions (optional)</label>
+          <textarea name="delivery_instructions" rows="2"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" style="margin-top:22px;">Place Order</button>
+      </form>
+      <div id="orderResult"></div>
+    </div>
+  </div>
+</section>
+
+{% endblock %}
+{% block scripts %}
+<script>
+const cart = TasteHub.getCart();
+const entries = Object.values(cart);
+const subtotal = entries.reduce((sum, i) => sum + i.price * i.qty, 0);
+const total = entries.length ? subtotal + 40 : 0;
+
+document.getElementById('orderSummary').innerHTML = entries.length ? `
+  ${entries.map(i => `<div class="th-summary-row"><span>${i.name} × ${i.qty}</span><span>₹${i.price * i.qty}</span></div>`).join('')}
+  <div class="th-summary-row"><span>Delivery Fee</span><span>₹40</span></div>
+  <div class="th-summary-row total"><span>Total</span><span>₹${total}</span></div>
+` : '<p class="th-empty">Your cart is empty. <a href="/menu">Go add some food.</a></p>';
+
+document.getElementById('checkoutForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (entries.length === 0) { TasteHub.toast('Your cart is empty'); return; }
+
+  const fd = new FormData(e.target);
+  const payload = Object.fromEntries(fd.entries());
+  payload.items = entries.map(i => ({ food_id: parseInt(i.id), quantity: i.qty }));
+
+  const res = await fetch('/api/orders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  if (res.ok) {
+    const data = await res.json();
+    TasteHub.clearCart();
+    document.getElementById('checkoutForm').style.display = 'none';
+    document.getElementById('orderResult').innerHTML = `
+      <div class="th-result-card">
+        <strong>🟢 Order Confirmed!</strong>
+        <div class="th-result-row"><span>Order</span><span>#${data.order_code}</span></div>
+        <div class="th-result-row"><span>Total</span><span>₹${data.total_amount}</span></div>
+        <a href="/orders" class="btn btn-primary btn-block" style="margin-top:14px;">Track My Order</a>
+      </div>`;
+  } else {
+    const err = await res.json();
+    TasteHub.toast(err.detail || 'Could not place order');
+  }
+});
+</script>
+{% endblock %}

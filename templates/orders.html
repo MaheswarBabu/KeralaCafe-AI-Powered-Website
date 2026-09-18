@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}My Orders{% endblock %}
+{% block content %}
+
+<section class="th-section">
+  <div class="th-container" style="max-width:640px;">
+    <span class="th-eyebrow">📦 Track your food</span>
+    <h2>My Orders</h2>
+
+    {% if not current_user %}
+    <p style="color:var(--espresso-soft); margin-bottom:20px;">Enter your phone number or order ID to check status, or <a href="/login?next=/orders" style="color:var(--chili-deep); font-weight:600;">log in</a> to see all your orders automatically.</p>
+
+    <div class="th-card">
+      <div class="th-form-grid">
+        <div class="th-field">
+          <label>Phone Number</label>
+          <input type="tel" id="phoneInput" placeholder="e.g. 9876543210">
+        </div>
+        <div class="th-field">
+          <label>Or Order ID</label>
+          <input type="text" id="orderIdInput" placeholder="e.g. TH1025 or 25">
+        </div>
+      </div>
+      <button class="btn btn-primary" id="lookupBtn" style="margin-top:16px;">Find My Order</button>
+    </div>
+    {% else %}
+    <p style="color:var(--espresso-soft); margin-bottom:20px;">Here's everything you've ordered, most recent first.</p>
+    {% endif %}
+
+    <div id="results" style="margin-top:24px; display:flex; flex-direction:column; gap:20px;"></div>
+  </div>
+</section>
+
+{% endblock %}
+{% block scripts %}
+<script>
+const IS_LOGGED_IN = {{ 'true' if current_user else 'false' }};
+const STAGES = ['Order Placed', 'Confirmed', 'Preparing', 'Out for Delivery', 'Delivered'];
+
+function renderOrder(order) {
+  if (order.status === 'Cancelled' || order.status === 'Change Requested') {
+    const noteHtml = order.admin_note ? `<p style="background:var(--ivory-dim); padding:10px 14px; border-radius:8px; font-size:0.85rem; margin-top:10px;"><strong>Note from restaurant:</strong> ${order.admin_note}</p>` : '';
+    const itemsHtml = order.items.map(i => `
+      <div class="th-summary-row"><span>${i.food_name} × ${i.quantity}</span><span>₹${i.price * i.quantity}</span></div>
+    `).join('');
+    return `
+      <div class="th-card">
+        <div class="th-heading-row" style="margin-bottom:8px;">
+          <strong class="mono">Order #${order.order_code}</strong>
+          <span class="th-tag th-tag-nonveg">${order.status}</span>
+        </div>
+        ${itemsHtml}
+        <div class="th-summary-row total"><span>Total</span><span>₹${order.total_amount}</span></div>
+        ${noteHtml}
+      </div>
+    `;
+  }
+
+  const currentIdx = STAGES.indexOf(order.status);
+  const stepsHtml = STAGES.map((stage, idx) => {
+    const cls = idx < currentIdx ? 'done' : (idx === currentIdx ? 'current' : '');
+    const icon = idx < currentIdx ? '✓' : (idx + 1);
+    return `<div class="th-status-step ${cls}"><div class="th-status-dot">${icon}</div><span>${stage}</span></div>`;
+  }).join('');
+
+  const itemsHtml = order.items.map(i => `
+    <div class="th-summary-row"><span>${i.food_name} × ${i.quantity}</span><span>₹${i.price * i.quantity}</span></div>
+  `).join('');
+
+  return `
+    <div class="th-card">
+      <div class="th-heading-row" style="margin-bottom:8px;">
+        <strong class="mono">Order #${order.order_code}</strong>
+        <span class="th-tag th-tag-veg">🟢 ${order.status}</span>
+      </div>
+      ${itemsHtml}
+      <div class="th-summary-row total"><span>Total</span><span>₹${order.total_amount}</span></div>
+      <div class="th-status-track">${stepsHtml}</div>
+    </div>
+  `;
+}
+
+async function loadMyOrders() {
+  const results = document.getElementById('results');
+  try {
+    const res = await fetch('/api/orders/mine');
+    if (!res.ok) throw new Error('failed');
+    const data = await res.json();
+    results.innerHTML = data.length ? data.map(renderOrder).join('') : '<p class="th-empty">You haven\'t placed any orders yet.</p>';
+  } catch (e) {
+    results.innerHTML = '<p class="th-empty">Could not load your orders right now.</p>';
+  }
+}
+
+if (IS_LOGGED_IN) {
+  loadMyOrders();
+} else {
+  document.getElementById('lookupBtn').addEventListener('click', async () => {
+    const phone = document.getElementById('phoneInput').value.trim();
+    const orderIdRaw = document.getElementById('orderIdInput').value.trim();
+    const results = document.getElementById('results');
+    results.innerHTML = '';
+
+    try {
+      if (orderIdRaw) {
+        let orderId = orderIdRaw;
+        const match = orderIdRaw.match(/(\d+)/);
+        if (match) {
+          let num = parseInt(match[1]);
+          if (orderIdRaw.toUpperCase().startsWith('TH') && num > 1000) num -= 1000;
+          orderId = num;
+        }
+        const res = await fetch(`/api/orders/${orderId}`);
+        if (!res.ok) throw new Error('not found');
+        const data = await res.json();
+        results.innerHTML = renderOrder(data);
+      } else if (phone) {
+        const res = await fetch(`/api/orders/phone/${encodeURIComponent(phone)}`);
+        if (!res.ok) throw new Error('not found');
+        const data = await res.json();
+        results.innerHTML = data.map(renderOrder).join('');
+      } else {
+        TasteHub.toast('Enter a phone number or order ID');
+        return;
+      }
+    } catch (e) {
+      results.innerHTML = '<p class="th-empty">No matching orders found.</p>';
+    }
+  });
+}
+</script>
+{% endblock %}

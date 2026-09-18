@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Reserve a Table{% endblock %}
+{% block content %}
+
+<section class="th-section">
+  <div class="th-container" style="max-width:640px;">
+    <span class="th-eyebrow">Book ahead</span>
+    <h2>Reserve Table</h2>
+    <p style="color:var(--espresso-soft); margin-bottom:24px;">Tell us when you're coming and how many are joining you.</p>
+
+    <div class="th-card">
+      <form id="reserveForm">
+        <div class="th-form-grid">
+          <div class="th-field">
+            <label>Name</label>
+            <input type="text" name="customer_name" value="{{ user.name if user else '' }}" required>
+          </div>
+          <div class="th-field">
+            <label>Phone</label>
+            <input type="tel" name="phone" value="{{ user.phone if user else '' }}" required>
+          </div>
+          <div class="th-field">
+            <label>Email</label>
+            <input type="email" name="email" value="{{ user.email if user else '' }}" required>
+          </div>
+          <div class="th-field">
+            <label>Date</label>
+            <input type="date" name="reservation_date" required>
+          </div>
+          <div class="th-field">
+            <label>Time</label>
+            <input type="time" name="reservation_time" required>
+          </div>
+          <div class="th-field">
+            <label>Number of Guests</label>
+            <input type="number" name="guests" min="1" max="12" value="2" required>
+          </div>
+        </div>
+        <div class="th-field" style="margin-top:16px;">
+          <label>Special Request (optional)</label>
+          <textarea name="special_request" rows="3" placeholder="Birthday cake, window seat, high chair..."></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary" style="margin-top:20px;">Check Availability</button>
+      </form>
+
+      <div id="availabilityResult"></div>
+    </div>
+  </div>
+</section>
+
+{% endblock %}
+{% block scripts %}
+<script>
+const form = document.getElementById('reserveForm');
+const resultDiv = document.getElementById('availabilityResult');
+let lastPayload = null;
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(form);
+  const payload = Object.fromEntries(fd.entries());
+  payload.guests = parseInt(payload.guests);
+  lastPayload = payload;
+
+  const params = new URLSearchParams({ date: payload.reservation_date, time: payload.reservation_time, guests: payload.guests });
+  const res = await fetch(`/api/tables/availability?${params}`);
+  const data = await res.json();
+
+  if (data.available) {
+    resultDiv.innerHTML = `
+      <div class="th-result-card">
+        <strong>✅ Table Available!</strong>
+        <div class="th-result-row"><span>Table</span><span>${data.table_number}</span></div>
+        <div class="th-result-row"><span>Capacity</span><span>${data.capacity} people</span></div>
+        <button class="btn btn-primary btn-block" id="confirmBtn" style="margin-top:14px;">Confirm Reservation</button>
+      </div>`;
+    document.getElementById('confirmBtn').addEventListener('click', confirmReservation);
+  } else {
+    resultDiv.innerHTML = `
+      <div class="th-result-card unavailable">
+        <strong>No tables available</strong>
+        <p style="margin:8px 0 0; font-size:0.9rem;">${data.message}</p>
+      </div>`;
+  }
+});
+
+async function confirmReservation() {
+  const res = await fetch('/api/reservations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(lastPayload)
+  });
+  if (res.ok) {
+    const data = await res.json();
+    resultDiv.innerHTML = `
+      <div class="th-result-card">
+        <strong>🎉 Reservation Confirmed</strong>
+        <div class="th-result-row"><span>Reservation ID</span><span>#${data.reservation_id}</span></div>
+        <div class="th-result-row"><span>Date</span><span>${data.reservation_date}</span></div>
+        <div class="th-result-row"><span>Time</span><span>${data.reservation_time}</span></div>
+        <div class="th-result-row"><span>Guests</span><span>${data.guests}</span></div>
+      </div>`;
+  } else if (res.status === 401) {
+    TasteHub.toast('Please log in to confirm your reservation.');
+    window.location.href = '/login?next=/reserve';
+  } else {
+    const err = await res.json().catch(() => ({}));
+    TasteHub.toast(err.detail || 'Could not confirm reservation - table just got booked.');
+  }
+}
+</script>
+{% endblock %}

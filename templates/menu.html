@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Menu{% endblock %}
+{% block content %}
+
+<section class="th-section">
+  <div class="th-container">
+    <div class="th-heading-row">
+      <div>
+        <span class="th-eyebrow">Full menu</span>
+        <h2>What are you craving?</h2>
+      </div>
+    </div>
+
+    <div class="th-filters">
+      <input type="text" id="searchInput" placeholder="Search dishes...">
+      <select id="categorySelect">
+        <option value="">All categories</option>
+        {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+      </select>
+      <select id="vegSelect">
+        <option value="">Veg &amp; Non-Veg</option>
+        <option value="veg">Veg only</option>
+        <option value="nonveg">Non-Veg only</option>
+      </select>
+      <select id="priceSelect">
+        <option value="">Any price</option>
+        <option value="150">Under ₹150</option>
+        <option value="250">Under ₹250</option>
+      </select>
+    </div>
+
+    <div class="th-order-layout">
+      <div>
+        <div class="th-card-grid" id="menuGrid">
+          {% for food in foods %}
+          <div class="th-food-card"
+               data-name="{{ food.food_name|lower }}"
+               data-category="{{ food.category }}"
+               data-veg="{{ 'veg' if food.is_veg else 'nonveg' }}"
+               data-price="{{ food.price }}">
+            {% if food.image_url %}
+            <div class="th-food-media" style="font-size:0;">
+              <img src="{{ food.image_url }}" alt="{{ food.food_name }}" loading="lazy"
+                   style="width:100%; height:100%; object-fit:cover;"
+                   onerror="this.parentElement.style.fontSize='2.4rem'; this.parentElement.textContent='{{ '🌶️' if food.spice_level >= 2 else '🍽️' }}';">
+            </div>
+            {% else %}
+            <div class="th-food-media">{{ '🌶️' if food.spice_level >= 2 else '🍽️' }}</div>
+            {% endif %}
+            <div class="th-food-body">
+              <div class="th-food-top">
+                <span class="th-food-name">{{ food.food_name }}</span>
+                <span class="th-price">₹{{ food.price|int }}</span>
+              </div>
+              <div class="th-food-meta">
+                <span class="th-tag {{ 'th-tag-veg' if food.is_veg else 'th-tag-nonveg' }}">{{ 'VEG' if food.is_veg else 'NON-VEG' }}</span>
+                <span class="th-tag th-tag-rating">★ {{ food.rating }}</span>
+                <span class="th-spice">{{ '🌶️' * food.spice_level }}</span>
+              </div>
+              <p class="th-food-desc">{{ food.description }}</p>
+              {% if food.availability %}
+              <div class="cart-action" data-id="{{ food.food_id }}" data-name="{{ food.food_name }}" data-price="{{ food.price }}"></div>
+              {% else %}
+              <button class="btn btn-sm btn-block" disabled>Unavailable</button>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        <p class="th-empty" id="emptyMsg" style="display:none;">No dishes match your filters.</p>
+      </div>
+
+      <aside class="th-card" style="position:sticky; top:90px;">
+        <h3 style="margin-bottom:16px;">Cart</h3>
+        <div id="cartItems"><p class="th-empty" style="padding:20px 0;">Your cart is empty.</p></div>
+        <hr class="th-divider" style="margin:16px 0;">
+        <div class="th-summary-row"><span>Subtotal</span><span id="subtotal">₹0</span></div>
+        <div class="th-summary-row"><span>Delivery Fee</span><span>₹40</span></div>
+        <div class="th-summary-row total"><span>Total</span><span id="total">₹0</span></div>
+        <a href="/checkout" class="btn btn-primary btn-block" style="margin-top:16px;">Proceed to Checkout</a>
+      </aside>
+    </div>
+  </div>
+</section>
+
+{% endblock %}
+{% block scripts %}
+<script>
+function applyFilters() {
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const cat = document.getElementById('categorySelect').value;
+  const veg = document.getElementById('vegSelect').value;
+  const price = document.getElementById('priceSelect').value;
+  let visibleCount = 0;
+
+  document.querySelectorAll('#menuGrid .th-food-card').forEach(card => {
+    let show = true;
+    if (search && !card.dataset.name.includes(search)) show = false;
+    if (cat && card.dataset.category !== cat) show = false;
+    if (veg && card.dataset.veg !== veg) show = false;
+    if (price && parseFloat(card.dataset.price) > parseFloat(price)) show = false;
+    card.style.display = show ? '' : 'none';
+    if (show) visibleCount++;
+  });
+  document.getElementById('emptyMsg').style.display = visibleCount === 0 ? 'block' : 'none';
+}
+
+['searchInput', 'categorySelect', 'vegSelect', 'priceSelect'].forEach(id => {
+  document.getElementById(id).addEventListener('input', applyFilters);
+});
+
+function renderCart() {
+  const cart = TasteHub.getCart();
+  const container = document.getElementById('cartItems');
+  const entries = Object.values(cart);
+
+  if (entries.length === 0) {
+    container.innerHTML = '<p class="th-empty" style="padding:20px 0;">Your cart is empty.</p>';
+  } else {
+    container.innerHTML = entries.map(item => `
+      <div class="th-cart-item">
+        <div>
+          <div style="font-weight:500;">${item.name}</div>
+          <div class="mono" style="font-size:0.8rem; color:var(--espresso-soft);">₹${item.price} each</div>
+        </div>
+        <div class="th-qty-control">
+          <button class="th-qty-btn" data-cart-action="dec" data-id="${item.id}">-</button>
+          <span>${item.qty}</span>
+          <button class="th-qty-btn" data-cart-action="inc" data-id="${item.id}">+</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  const subtotal = entries.reduce((sum, i) => sum + i.price * i.qty, 0);
+  document.getElementById('subtotal').textContent = `₹${subtotal}`;
+  document.getElementById('total').textContent = `₹${subtotal ? subtotal + 40 : 0}`;
+}
+
+renderCart();
+window.addEventListener('tastehub:cartchange', renderCart);
+</script>
+{% endblock %}

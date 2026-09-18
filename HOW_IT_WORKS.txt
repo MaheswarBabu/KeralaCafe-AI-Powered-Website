@@ -1,0 +1,255 @@
+================================================================================
+                  KERALA CAFE - COMPLETE SYSTEM & FEATURE GUIDE
+================================================================================
+This document provides an in-depth, step-by-step breakdown of how Kerala Cafe works,
+covering what the user experiences on the front end and what happens behind the 
+scenes in the database, backend APIs, and AI engine when using every feature.
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+1. Architecture & Tech Stack Overview
+2. Feature 1: CafeMate AI Assistant (Push-to-Talk Voice & Malayalam Translation)
+3. Feature 2: Table Reservation System
+4. Feature 3: Online Food Ordering, Cart & Checkout Flow
+5. Feature 4: User Authentication & Session Security
+6. Feature 5: Admin Control Dashboard & Operations
+7. Database Schema & Data Models
+8. Automated Email Notification Engine
+
+================================================================================
+1. ARCHITECTURE & TECH STACK OVERVIEW
+================================================================================
+- Platform Name: Kerala Cafe
+- AI Assistant Name: CafeMate
+- Backend Framework: FastAPI (Python 3.12)
+- Database: SQLite with SQLAlchemy ORM (file: tastehub.db)
+- Frontend: Jinja2 Templates (HTML5, Modern CSS, Vanilla JavaScript)
+- Voice Speech Recognition (STT): Web Speech API (SpeechRecognition)
+- AI Intelligence: Hybrid Dual-Engine
+    * Engine A: Google Gemini 2.5 Flash via google-genai SDK
+    * Engine B: Rule-Based Natural Language Processor & Recommendation Fallback
+- Email Dispatcher: Python standard smtplib with TLS encryption (or console dry-run)
+- Session Management: Starlette SessionMiddleware with cryptographic cookies
+
+================================================================================
+2. FEATURE 1: CAFEMATE AI ASSISTANT (PUSH-TO-TALK & MALAYALAM SUPPORT)
+================================================================================
+CafeMate acts as Kerala Cafe's personal food host. It grounds its recommendations
+strictly on the actual restaurant menu and never hallucinates fake dishes.
+
+A. USER EXPERIENCE:
+-------------------
+1. Language Switcher:
+   - At the top of the chat, toggle between [English] and [മലയാളം].
+   - Choosing Malayalam updates suggestions, placeholder text, and voice recognition.
+2. Push-to-Talk (Hold-to-Record) Voice Button:
+   - Next to the input field is a circular microphone button.
+   - When pressed down (mouse click or screen touch):
+     * The circular button changes color to vibrant red (#E03E2D) and pulses.
+     * A real-time waveform banner displays: "Listening... Release mic button to send".
+     * Live transcribed text appears directly in the text box as the user speaks.
+   - When released:
+     * Recording automatically stops.
+     * The transcribed speech is instantly submitted to CafeMate.
+3. Chat & Recommendations:
+   - CafeMate analyzes the request and answers in the selected language.
+   - It outputs a friendly conversational reply followed by matching dish cards.
+   - Each card displays the dish name, price, spice level/rating, and a "+ Add" 
+     button to immediately add that dish to the shopping cart.
+
+B. WHAT HAPPENS BEHIND THE SCENES:
+-----------------------------------
+Step 1 (Client): 
+  - JavaScript initializes `webkitSpeechRecognition` with language set to 
+    `en-IN` (English) or `ml-IN` (Malayalam).
+  - On `pointerdown`, recognition.start() captures the audio stream.
+  - On `pointerup`, recognition.stop() sends a JSON POST request to `/api/ai/recommend` 
+    containing `{ "message": "user's text or speech transcript" }`.
+
+Step 2 (Backend AI Service - `ai_service.py`):
+  - Fetches all currently available food items from the database (`Food.availability == True`).
+  - Identifies language: Detects Malayalam Unicode script (`\u0D00-\u0D7F`) or Manglish phrases.
+  - Route A (Gemini Mode):
+    * If `GEMINI_API_KEY` is set, constructs a strict prompt with the live JSON menu.
+    * Instructs Gemini as "CafeMate, Kerala Cafe's friendly restaurant food assistant":
+      1) Reject off-topic queries (e.g. asking for a taxi/phone).
+      2) Substitute unavailable items (e.g. substitute ice cream with dessert options).
+      3) Match vague cravings to menu categories.
+      4) Respond in natural Malayalam (if asked in Malayalam) or English.
+      5) Return strict JSON with `food_id`, `food_name`, `price`, `reason`, and `reply`.
+  - Route B (Rule-Based Fallback Mode):
+    * If Gemini API is not configured or fails, the built-in Malayalam/English NLP engine runs.
+    * Matches aliases (e.g. "ചിക്കൻ ബിരിയാണി" -> "Chicken Biriyani", "നാരങ്ങ വെള്ളം" -> "Fresh Lime").
+    * Parses preferences: Veg/Non-veg, Spice level, Price limits ("₹200 രൂപയിൽ താഴെ"), Categories.
+    * Filters candidates sorted by rating and generates localized Malayalam/English reply sentences.
+
+Step 3 (Client Response Handling):
+  - Injects assistant message into `#chatLog`.
+  - Builds dynamic "+ Add" buttons wired to `KeralaCafe.addToCart(...)`.
+
+================================================================================
+3. FEATURE 2: TABLE RESERVATION SYSTEM
+================================================================================
+Allows customers to book dining tables with real-time table conflict checks.
+
+A. USER EXPERIENCE:
+-------------------
+1. The user navigates to "/reserve".
+2. Selects Date, Time Slot (e.g., 19:30), and Number of Guests (1 to 8+).
+3. Clicks "Check Table Availability":
+   - If available: Displays a green confirmation card showing Table Number & Capacity.
+   - If full: Displays a red warning asking the user to pick another time or date.
+4. If logged in, fills customer details (Name, Phone, Special Request) and clicks "Confirm Booking".
+5. Receives an on-screen confirmation card with a unique Reservation ID, and an email.
+
+B. WHAT HAPPENS BEHIND THE SCENES:
+-----------------------------------
+Step 1 (Live Availability Check):
+  - JavaScript sends `GET /api/tables/availability?date=...&time=...&guests=...`.
+  - The backend queries the `reservations` table for any confirmed reservation matching 
+    that date and time slot.
+  - Finds existing `table_id`s that are already occupied.
+  - Queries `restaurant_tables` for the smallest table with `capacity >= guests` that 
+    is NOT in the occupied table list.
+  - Returns `{ "available": true, "table_id": 1, "table_number": "T-01", "capacity": 2 }`.
+
+Step 2 (Reservation Submission):
+  - User submits form via `POST /api/reservations`.
+  - Backend verifies user authentication (via session cookie).
+  - Inserts a new row into `reservations` table with status `"confirmed"`.
+  - Calls `email_service.send_reservation_confirmation(reservation)`:
+    * Sends an automated email to the customer with date, time, party size, and table details.
+  - The reservation immediately appears in the Admin Reservation Dashboard.
+
+================================================================================
+4. FEATURE 3: ONLINE FOOD ORDERING, CART & CHECKOUT FLOW
+================================================================================
+A seamless ordering experience with a persistent cart and live status tracker.
+
+A. USER EXPERIENCE:
+-------------------
+1. Browsing & Adding Items:
+   - On the "/menu" page, user can filter by Category (Starters, Main Course, etc.), 
+     Diet (Veg/Non-Veg), Spice level, or Search bar.
+   - Clicking "+ Add" adds the dish to the slide-in cart sidebar.
+   - Cart calculates line items, quantities (+ / -), and delivery fee (₹40).
+2. Checkout:
+   - User clicks "Proceed to Checkout" -> routed to "/checkout".
+   - Fills Delivery Address, Landmark, Delivery Instructions, and Payment Method (COD/UPI).
+   - Clicks "Place Order".
+3. Order Confirmation & Tracking:
+   - User gets redirected to a success screen with an Order Code (e.g. "KC1024").
+   - Can visit "/orders" anytime to see active and past orders with a visual 4-step progress bar:
+     [Order Placed] -> [Preparing] -> [Out for Delivery] -> [Delivered]
+
+B. WHAT HAPPENS BEHIND THE SCENES:
+-----------------------------------
+Step 1 (Cart Storage):
+  - Cart state is saved in the browser's `localStorage` (`keralacafe_cart`), allowing users 
+    to browse multiple pages without losing their selected items.
+
+Step 2 (Order Placement - `POST /api/orders`):
+  - Validates user authentication.
+  - Verifies cart is not empty.
+  - Server iterates through all items and re-queries the database `Food` table to:
+    * Ensure each item is currently available (`availability == True`).
+    * Fetch official database prices (preventing client-side price tampering).
+  - Calculates subtotal + delivery fee (₹40.0).
+  - Database Transaction:
+    * Creates an `Order` record with status `"Order Placed"`.
+    * Flushes to obtain the new `order_id`.
+    * Creates child `OrderItem` records linking `order_id`, `food_id`, `quantity`, `price`.
+    * Commits the transaction atomically.
+  - Calls `email_service.send_order_confirmation(order)`:
+    * Formats an itemized bill with total amount and delivery address.
+    * Dispatches email to customer.
+  - Clears `localStorage` cart.
+
+================================================================================
+5. FEATURE 4: USER AUTHENTICATION & SESSION SECURITY
+================================================================================
+1. Registration (`POST /api/auth/register`):
+   - Accepts Name, Email, Phone, and Password (minimum 6 characters).
+   - Checks database for existing email or phone to prevent duplicate accounts.
+   - Hashes password using PBKDF2/HMAC-SHA256 with salt via `hash_password()`.
+   - Creates `User` entry and sets `request.session["user_id"]`.
+
+2. Login (`POST /api/auth/login`):
+   - Accepts Email or Phone + Password.
+   - Verifies password hash using `hmac.compare_digest`.
+   - Stores session ID in secure HTTP-only cookies.
+
+3. Role-Based Access Control:
+   - Standard user: Can order food, book tables, view their personal orders.
+   - Admin user (`is_admin == True`): Can access `/admin/*` routes to manage 
+     orders, reservations, and restaurant food items.
+
+================================================================================
+6. FEATURE 5: ADMIN CONTROL DASHBOARD & OPERATIONS
+================================================================================
+Administrators have access to real-time management tools:
+
+1. Orders Management (`/admin/orders`):
+   - View all incoming customer orders sorted chronologically.
+   - Update Order Status: Dropdown to change status to Preparing, Out for Delivery, or Delivered.
+   - Request Change: Admin can enter a custom note (e.g. "Item out of stock, substitute?").
+     * Sets order status to "Change Requested" and triggers an email to the customer.
+   - Cancel Order: Admin can cancel with an optional reason note, which sends a cancellation email.
+
+2. Reservations Management (`/admin/reservations`):
+   - View all booked tables, dates, time slots, party sizes, and customer phone numbers.
+   - Cancel reservation with automated email explanation to the customer.
+
+3. Menu Management (`/admin/menu`):
+   - Add New Food: Name, Category, Price, Spice level, Veg toggle, Image URL or File Upload.
+   - Uploaded dish images are saved to `static/images/uploads/` with UUID filenames.
+   - Edit / Delete Food: Instantly update dish details or toggle availability off.
+
+================================================================================
+7. DATABASE SCHEMA & DATA MODELS (`models.py`)
+================================================================================
+1. `users`:
+   - `user_id` (PK, Integer), `name`, `email` (Unique), `phone` (Unique), 
+     `password_hash`, `is_admin` (Boolean), `created_at` (DateTime)
+
+2. `foods`:
+   - `food_id` (PK, Integer), `food_name`, `category`, `price` (Float), 
+     `description`, `is_veg` (Boolean), `spice_level` (1 to 3), `image_url`, 
+     `availability` (Boolean), `rating` (Float)
+
+3. `restaurant_tables`:
+   - `table_id` (PK, Integer), `table_number` (e.g. "T-01"), `capacity` (Integer), 
+     `status` ("available" / "occupied")
+
+4. `reservations`:
+   - `reservation_id` (PK, Integer), `user_id` (FK), `table_id` (FK), 
+     `customer_name`, `phone`, `email`, `reservation_date`, `reservation_time`, 
+     `guests`, `special_request`, `status` ("confirmed", "cancelled"), `admin_note`
+
+5. `orders`:
+   - `order_id` (PK, Integer), `user_id` (FK), `customer_name`, `phone`, `email`, 
+     `address`, `landmark`, `delivery_instructions`, `payment_method`, 
+     `total_amount` (Float), `status` ("Order Placed", "Preparing", "Out for Delivery", "Delivered", "Cancelled"), 
+     `admin_note`, `order_date` (DateTime)
+
+6. `order_items`:
+   - `order_item_id` (PK, Integer), `order_id` (FK), `food_id` (FK), 
+     `quantity` (Integer), `price` (Float)
+
+================================================================================
+8. AUTOMATED EMAIL NOTIFICATION ENGINE (`email_service.py`)
+================================================================================
+- Production Mode: When `SMTP_HOST`, `SMTP_USER`, and `SMTP_PASSWORD` environment 
+  variables are configured, sends authenticated TLS emails.
+- Development / Dry-Run Mode: When SMTP credentials are not set, all formatted emails 
+  are logged directly to the server terminal with destination, subject, and body, 
+  allowing full verification of customer notification flows without external dependencies.
+
+================================================================================
+SUMMARY
+================================================================================
+Kerala Cafe coordinates frontend interactions, backend validations, real-time database 
+transactions, automated email alerts, and the CafeMate AI assistant with push-to-talk 
+voice input and Malayalam translation for an authentic dining and ordering experience.
+================================================================================

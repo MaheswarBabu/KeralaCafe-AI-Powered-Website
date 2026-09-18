@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Admin - Orders{% endblock %}
+{% block content %}
+
+<section class="th-section">
+  <div class="th-container">
+    <span class="th-eyebrow">🔑 Admin</span>
+    <h2>Orders</h2>
+
+    <div class="th-filters" style="margin:20px 0;">
+      <a href="/admin/orders" class="th-chip active">Orders</a>
+      <a href="/admin/reservations" class="th-chip">Reservations</a>
+      <a href="/admin/menu" class="th-chip">Menu</a>
+    </div>
+
+    {% if not orders %}
+    <p class="th-empty">No orders yet.</p>
+    {% endif %}
+
+    <div style="display:flex; flex-direction:column; gap:18px;">
+      {% for order in orders %}
+      <div class="th-card">
+        <div class="th-heading-row" style="margin-bottom:6px;">
+          <div>
+            <strong class="mono">#{{ order_code(order.order_id) }}</strong>
+            &nbsp;&middot;&nbsp; {{ order.customer_name }} &middot; {{ order.phone }}
+            {% if order.email %} &middot; {{ order.email }}{% endif %}
+          </div>
+          <span class="th-tag {{ 'th-tag-nonveg' if order.status in ['Cancelled', 'Change Requested'] else 'th-tag-veg' }}">{{ order.status }}</span>
+        </div>
+        <div style="font-size:0.86rem; color:var(--espresso-soft); margin-bottom:10px;">
+          {{ order.address }}{% if order.landmark %}, {{ order.landmark }}{% endif %}
+        </div>
+        {% for item in order.items %}
+        <div class="th-summary-row"><span>{{ item.food.food_name if item.food else 'Item' }} × {{ item.quantity }}</span><span>₹{{ item.price * item.quantity }}</span></div>
+        {% endfor %}
+        <div class="th-summary-row total"><span>Total</span><span>₹{{ order.total_amount }}</span></div>
+
+        {% if order.admin_note %}
+        <p style="background:var(--ivory-dim); padding:10px 14px; border-radius:8px; font-size:0.85rem; margin-top:10px;">
+          <strong>Note:</strong> {{ order.admin_note }}
+        </p>
+        {% endif %}
+
+        <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:16px; align-items:center;">
+          <form method="post" action="/admin/orders/{{ order.order_id }}/status" style="display:flex; gap:8px; align-items:center;">
+            <select name="status" class="mono" style="padding:8px 10px; border-radius:8px; border:1px solid var(--line);">
+              {% for s in ['Order Placed', 'Confirmed', 'Preparing', 'Out for Delivery', 'Delivered'] %}
+              <option value="{{ s }}" {{ 'selected' if order.status == s }}>{{ s }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-dark btn-sm">Update Status</button>
+          </form>
+
+          <button class="btn btn-sm" style="background:var(--chili); color:#fff;" onclick="document.getElementById('cancel-{{ order.order_id }}').classList.toggle('open-panel')">Cancel Order</button>
+          <button class="btn btn-sm btn-outline" style="color:var(--espresso); border-color:var(--line);" onclick="document.getElementById('change-{{ order.order_id }}').classList.toggle('open-panel')">Request Item Change</button>
+        </div>
+
+        <div id="cancel-{{ order.order_id }}" class="admin-panel">
+          <form method="post" action="/admin/orders/{{ order.order_id }}/cancel">
+            <div class="th-field">
+              <label>Reason for cancellation (emailed to customer)</label>
+              <textarea name="reason" rows="2" placeholder="e.g. Kitchen closed early / item unavailable"></textarea>
+            </div>
+            <button type="submit" class="btn btn-sm" style="background:var(--chili); color:#fff; margin-top:8px;">Confirm Cancel &amp; Email Customer</button>
+          </form>
+        </div>
+
+        <div id="change-{{ order.order_id }}" class="admin-panel">
+          <form method="post" action="/admin/orders/{{ order.order_id }}/request-change">
+            <div class="th-field">
+              <label>Message to customer (emailed to them)</label>
+              <textarea name="message" rows="2" required placeholder="e.g. Chicken 65 is out of stock - would you like Chilli Paneer instead?"></textarea>
+            </div>
+            <button type="submit" class="btn btn-sm btn-dark" style="margin-top:8px;">Send Change Request Email</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<style>
+.admin-panel { display:none; margin-top:14px; padding-top:14px; border-top:1px dashed var(--line); }
+.admin-panel.open-panel { display:block; }
+</style>
+
+{% endblock %}

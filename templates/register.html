@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Sign Up{% endblock %}
+{% block content %}
+
+<section class="th-section">
+  <div class="th-container" style="max-width:440px;">
+    <span class="th-eyebrow">Join Kerala Cafe</span>
+    <h2>Create Account</h2>
+
+    <div class="th-card" style="margin-top:20px;">
+      <form id="registerForm">
+        <div class="th-field">
+          <label>Full Name</label>
+          <input type="text" name="name" required>
+        </div>
+        <div class="th-field" style="margin-top:16px;">
+          <label>Email</label>
+          <input type="email" name="email" required autocomplete="email">
+        </div>
+        <div class="th-field" style="margin-top:16px;">
+          <label>Phone Number</label>
+          <input type="tel" name="phone" required autocomplete="tel">
+        </div>
+        <div class="th-field" style="margin-top:16px;">
+          <label>Password</label>
+          <input type="password" name="password" minlength="6" required autocomplete="new-password">
+        </div>
+        <button type="submit" class="btn btn-primary btn-block" style="margin-top:20px;">Create Account</button>
+      </form>
+      <p id="registerError" style="color:var(--chili-deep); font-size:0.88rem; margin-top:12px; display:none;"></p>
+      <p style="margin-top:18px; font-size:0.9rem; text-align:center;">
+        Already have an account? <a href="/login?next={{ next }}" style="color:var(--chili-deep); font-weight:600;">Log in</a>
+      </p>
+    </div>
+  </div>
+</section>
+
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('registerForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const payload = Object.fromEntries(fd.entries());
+  const errEl = document.getElementById('registerError');
+  errEl.style.display = 'none';
+
+  const res = await fetch('/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  if (res.ok) {
+    window.location.href = "{{ next }}";
+  } else {
+    const err = await res.json();
+    errEl.textContent = err.detail || 'Registration failed.';
+    errEl.style.display = 'block';
+  }
+});
+</script>
+{% endblock %}

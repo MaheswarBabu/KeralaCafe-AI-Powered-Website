@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Admin - Reservations{% endblock %}
+{% block content %}
+
+<section class="th-section">
+  <div class="th-container">
+    <span class="th-eyebrow">🔑 Admin</span>
+    <h2>Table Reservations</h2>
+
+    <div class="th-filters" style="margin:20px 0;">
+      <a href="/admin/orders" class="th-chip">Orders</a>
+      <a href="/admin/reservations" class="th-chip active">Reservations</a>
+      <a href="/admin/menu" class="th-chip">Menu</a>
+    </div>
+
+    {% if not reservations %}
+    <p class="th-empty">No reservations yet.</p>
+    {% endif %}
+
+    <div style="display:flex; flex-direction:column; gap:16px;">
+      {% for r in reservations %}
+      <div class="th-card">
+        <div class="th-heading-row" style="margin-bottom:6px;">
+          <div>
+            <strong class="mono">#{{ r.reservation_id }}</strong>
+            &nbsp;&middot;&nbsp; {{ r.customer_name }} &middot; {{ r.phone }}
+            {% if r.email %} &middot; {{ r.email }}{% endif %}
+          </div>
+          <span class="th-tag {{ 'th-tag-nonveg' if r.status == 'cancelled' else 'th-tag-veg' }}">{{ r.status }}</span>
+        </div>
+        <div class="th-summary-row"><span>Date</span><span>{{ r.reservation_date }}</span></div>
+        <div class="th-summary-row"><span>Time</span><span>{{ r.reservation_time }}</span></div>
+        <div class="th-summary-row"><span>Guests</span><span>{{ r.guests }}</span></div>
+        <div class="th-summary-row"><span>Table</span><span>{{ r.table.table_number if r.table else '-' }}</span></div>
+        {% if r.special_request %}
+        <div class="th-summary-row"><span>Special Request</span><span>{{ r.special_request }}</span></div>
+        {% endif %}
+        {% if r.admin_note %}
+        <p style="background:var(--ivory-dim); padding:10px 14px; border-radius:8px; font-size:0.85rem; margin-top:10px;">
+          <strong>Note:</strong> {{ r.admin_note }}
+        </p>
+        {% endif %}
+
+        {% if r.status != 'cancelled' %}
+        <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:16px;">
+          <button class="btn btn-sm" style="background:var(--chili); color:#fff;" onclick="document.getElementById('cancel-{{ r.reservation_id }}').classList.toggle('open-panel')">Cancel Reservation</button>
+          <button class="btn btn-sm btn-outline" style="color:var(--espresso); border-color:var(--line);" onclick="document.getElementById('change-{{ r.reservation_id }}').classList.toggle('open-panel')">Request Change</button>
+        </div>
+
+        <div id="cancel-{{ r.reservation_id }}" class="admin-panel">
+          <form method="post" action="/admin/reservations/{{ r.reservation_id }}/cancel">
+            <div class="th-field">
+              <label>Reason (emailed to customer)</label>
+              <textarea name="reason" rows="2" placeholder="e.g. Table needed for private event"></textarea>
+            </div>
+            <button type="submit" class="btn btn-sm" style="background:var(--chili); color:#fff; margin-top:8px;">Confirm Cancel &amp; Email Customer</button>
+          </form>
+        </div>
+
+        <div id="change-{{ r.reservation_id }}" class="admin-panel">
+          <form method="post" action="/admin/reservations/{{ r.reservation_id }}/request-change">
+            <div class="th-field">
+              <label>Message to customer (emailed to them)</label>
+              <textarea name="message" rows="2" required placeholder="e.g. Could you move your booking to 8:30 PM instead?"></textarea>
+            </div>
+            <button type="submit" class="btn btn-sm btn-dark" style="margin-top:8px;">Send Request Email</button>
+          </form>
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<style>
+.admin-panel { display:none; margin-top:14px; padding-top:14px; border-top:1px dashed var(--line); }
+.admin-panel.open-panel { display:block; }
+</style>
+
+{% endblock %}

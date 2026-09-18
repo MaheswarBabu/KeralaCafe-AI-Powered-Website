@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Kerala Cafe{% endblock %} - Kerala Cafe</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="th-nav">
+  <div class="th-nav-inner">
+    <a href="/" class="th-brand">Kerala Cafe</a>
+    <button class="th-nav-toggle" id="navToggle" aria-label="Toggle navigation">☰</button>
+    <nav class="th-nav-links" id="navLinks">
+      <a href="/" class="{{ 'active' if request.url.path == '/' }}">Home</a>
+      <a href="/menu" class="{{ 'active' if request.url.path == '/menu' }}">Menu</a>
+      <a href="/reserve" class="{{ 'active' if request.url.path == '/reserve' }}">Reserve Table</a>
+      <a href="/ai-assistant" class="{{ 'active' if request.url.path == '/ai-assistant' }}">AI Assistant (CafeMate)</a>
+      <a href="/orders" class="{{ 'active' if request.url.path == '/orders' }}">My Orders</a>
+      {% if current_user %}
+        {% if current_user.is_admin %}
+        <a href="/admin/orders" class="{{ 'active' if request.url.path.startswith('/admin') }}">Admin</a>
+        {% endif %}
+        <a href="/logout">Logout ({{ current_user.name.split(' ')[0] }})</a>
+      {% else %}
+        <a href="/login" class="{{ 'active' if request.url.path == '/login' }}">Login</a>
+        <a href="/register" class="{{ 'active' if request.url.path == '/register' }}">Sign Up</a>
+      {% endif %}
+    </nav>
+  </div>
+</header>
+
+<main>
+{% block content %}{% endblock %}
+</main>
+
+<footer class="th-footer">
+  <div class="th-footer-inner">
+    <span>Kerala Cafe &mdash; Authentic Food. Made Fresh.</span>
+    <span class="th-footer-dim">Kerala-style kitchen &middot; Fresh & Natural</span>
+  </div>
+</footer>
+
+<script src="/static/script.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

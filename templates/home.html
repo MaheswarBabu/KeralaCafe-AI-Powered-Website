@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+{% block content %}
+
+<section class="th-hero">
+  <div class="th-container th-hero-content">
+    <span class="th-eyebrow">Kerala-style kitchen</span>
+    <h1>Authentic Food.<br>Made Fresh.</h1>
+    <p>Order online, reserve your table, or ask our AI assistant what to eat tonight.</p>
+    <div class="th-hero-actions">
+      <a href="/menu" class="btn btn-primary">Order Online</a>
+      <a href="/reserve" class="btn btn-outline">Reserve Table</a>
+    </div>
+  </div>
+</section>
+
+<section class="th-section">
+  <div class="th-container">
+    <div class="th-heading-row">
+      <div>
+        <span class="th-eyebrow">On the pass right now</span>
+        <h2>Today's Specials</h2>
+      </div>
+      <a href="/menu" class="btn btn-dark btn-sm">View full menu &rarr;</a>
+    </div>
+    <div class="th-card-grid">
+      {% for food in specials %}
+      <div class="th-food-card">
+        {% if food.image_url %}
+        <div class="th-food-media" style="font-size:0;">
+          <img src="{{ food.image_url }}" alt="{{ food.food_name }}" loading="lazy"
+               style="width:100%; height:100%; object-fit:cover;"
+               onerror="this.parentElement.style.fontSize='2.4rem'; this.parentElement.textContent='{{ '🌶️' if food.spice_level >= 2 else '🍽️' }}';">
+        </div>
+        {% else %}
+        <div class="th-food-media">{{ '🌶️' if food.spice_level >= 2 else '🍽️' }}</div>
+        {% endif %}
+        <div class="th-food-body">
+          <div class="th-food-top">
+            <span class="th-food-name">{{ food.food_name }}</span>
+            <span class="th-price">₹{{ food.price|int }}</span>
+          </div>
+          <div class="th-food-meta">
+            <span class="th-tag {{ 'th-tag-veg' if food.is_veg else 'th-tag-nonveg' }}">{{ 'VEG' if food.is_veg else 'NON-VEG' }}</span>
+            <span class="th-tag th-tag-rating">★ {{ food.rating }}</span>
+          </div>
+          <p class="th-food-desc">{{ food.description }}</p>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="th-section th-section-tight" style="background:var(--ivory-dim);">
+  <div class="th-container">
+    <div class="th-heading-row">
+      <div>
+        <span class="th-eyebrow">The Kerala Cafe difference</span>
+        <h2>Why Choose Us?</h2>
+      </div>
+    </div>
+    <div class="th-features">
+      <div class="th-feature"><div class="th-check">✓</div><strong>Fresh Ingredients</strong></div>
+      <div class="th-feature"><div class="th-check">✓</div><strong>Family Restaurant</strong></div>
+      <div class="th-feature"><div class="th-check">✓</div><strong>Fast Service</strong></div>
+      <div class="th-feature"><div class="th-check">✓</div><strong>Online Ordering</strong></div>
+    </div>
+  </div>
+</section>
+
+{% endblock %}

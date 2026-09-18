@@ -112,7 +112,8 @@ def orders_page(request: Request, db: Session = Depends(get_db)):
 
 @app.get("/ai-assistant")
 def ai_assistant_page(request: Request, db: Session = Depends(get_db)):
-    return render(request, "ai_assistant.html", db)
+    categories = sorted({f.category for f in db.query(models.Food).filter(models.Food.availability == True).all()})  # noqa: E712
+    return render(request, "ai_assistant.html", db, {"categories": categories})
 
 
 # ---------------------- Auth pages ----------------------

@@ -17,12 +17,11 @@
           <button type="button" class="th-lang-btn active" data-lang="en-IN" id="langEn">English</button>
           <button type="button" class="th-lang-btn" data-lang="ml-IN" id="langMl">മലയാളം</button>
         </div>
+        <button type="button" class="th-lang-btn active" id="soundToggle" title="Toggle spoken replies" style="margin-left:6px;">🔊</button>
       </div>
 
       <div class="th-chat-log" id="chatLog">
-        <div class="th-msg th-msg-ai" id="welcomeMsg">
-          Hi! I'm <strong>CafeMate</strong>, your personal food assistant at Kerala Cafe. Tell me what you're in the mood for — vegetarian, spicy, a budget — and I'll pick from our actual menu. You can also press and hold the mic to speak in English or Malayalam!
-        </div>
+        <div class="th-msg th-msg-ai" id="welcomeMsg"></div>
       </div>
 
       <div class="th-suggestions" id="suggestionsContainer">
@@ -77,11 +76,72 @@ const suggestionsContainer = document.getElementById('suggestionsContainer');
 const langEnBtn = document.getElementById('langEn');
 const langMlBtn = document.getElementById('langMl');
 const welcomeMsg = document.getElementById('welcomeMsg');
+const soundToggle = document.getElementById('soundToggle');
+
+const CATEGORIES = {{ categories|tojson }};
 
 let currentLang = 'en-IN';
 let isRecording = false;
 let recognition = null;
 let recordedTranscript = '';
+let soundOn = true;
+
+// ==========================================
+// Text-to-Speech: introduction + spoken replies
+// ==========================================
+function pickVoice(lang) {
+  if (!window.speechSynthesis) return null;
+  const voices = window.speechSynthesis.getVoices();
+  const wantMl = lang === 'ml-IN';
+  let voice = voices.find(v => wantMl ? v.lang.toLowerCase().startsWith('ml') : v.lang.toLowerCase().startsWith('en'));
+  if (!voice && wantMl) voice = voices.find(v => v.lang.toLowerCase().startsWith('en')); // fallback if no ML voice installed
+  return voice || null;
+}
+
+function speak(text, lang) {
+  if (!soundOn || !window.speechSynthesis || !text) return;
+  try {
+    window.speechSynthesis.cancel(); // don't overlap previous utterances
+    const targetLang = lang || (/[\u0D00-\u0D7F]/.test(text) ? 'ml-IN' : 'en-IN');
+    const utter = new SpeechSynthesisUtterance(text.replace(/<[^>]*>/g, ' '));
+    utter.lang = targetLang;
+    const voice = pickVoice(targetLang);
+    if (voice) utter.voice = voice;
+    utter.rate = 0.98;
+    window.speechSynthesis.speak(utter);
+  } catch (e) { /* TTS not supported - fail silently */ }
+}
+
+if (window.speechSynthesis) {
+  window.speechSynthesis.onvoiceschanged = () => {}; // voices load async in some browsers
+}
+
+soundToggle.addEventListener('click', () => {
+  soundOn = !soundOn;
+  soundToggle.textContent = soundOn ? '🔊' : '🔇';
+  soundToggle.classList.toggle('active', soundOn);
+  if (!soundOn && window.speechSynthesis) window.speechSynthesis.cancel();
+});
+
+function introMessage(lang) {
+  const list = CATEGORIES.length ? CATEGORIES.join(', ') : null;
+  if (lang === 'ml-IN') {
+    const catText = list ? `ഇന്ന് ഞങ്ങളുടെ മെനുവിൽ ${list} എന്നിവ ലഭ്യമാണ്. ` : '';
+    return `നമസ്കാരം! ഞാൻ CafeMate ആണ്, Kerala Cafe യുടെ ഭക്ഷണ സഹായി. ` +
+           catText +
+           `നിങ്ങൾക്ക് എന്താണ് കഴിക്കാൻ താല്പര്യം എന്ന് പറയൂ, അല്ലെങ്കിൽ മൈക്ക് അമർത്തിപ്പിടിച്ച് സംസാരിക്കൂ - ഞാൻ നിങ്ങളുടെ ഓർഡർ എടുക്കാൻ സഹായിക്കാം!`;
+  }
+  const catText = list ? `Today our menu has ${list} available. ` : '';
+  return `Hi! I'm CafeMate, your personal food assistant at Kerala Cafe. ` +
+         catText +
+         `Tell me what you're in the mood for — vegetarian, spicy, a budget — and I'll pick from our actual menu. You can also press and hold the mic to speak in English or Malayalam!`;
+}
+
+function showIntro(lang) {
+  const text = introMessage(lang);
+  welcomeMsg.textContent = text;
+  speak(text, lang);
+}
 
 // Language-specific suggestions
 const suggestions = {
@@ -112,7 +172,7 @@ function renderSuggestions() {
   });
 }
 
-function setLanguage(lang) {
+function setLanguage(lang, announce) {
   currentLang = lang;
   if (lang === 'ml-IN') {
     langMlBtn.classList.add('active');
@@ -127,11 +187,15 @@ function setLanguage(lang) {
   if (recognition) {
     recognition.lang = currentLang;
   }
+  if (announce) {
+    showIntro(lang);
+  }
 }
 
-langEnBtn.addEventListener('click', () => setLanguage('en-IN'));
-langMlBtn.addEventListener('click', () => setLanguage('ml-IN'));
+langEnBtn.addEventListener('click', () => setLanguage('en-IN', true));
+langMlBtn.addEventListener('click', () => setLanguage('ml-IN', true));
 renderSuggestions();
+showIntro(currentLang); // speak the bilingual introduction on page load
 
 function appendMsg(html, who) {
   const div = document.createElement('div');
@@ -174,9 +238,11 @@ async function sendMessage(message) {
     `).join('');
 
     appendMsg(`${data.reply}${recsHtml}`, 'ai');
+    speak(data.reply, isMl ? 'ml-IN' : 'en-IN');
   } catch (e) {
     thinking.remove();
-    appendMsg(isMl ? "ക്ഷമിക്കണം, ഇപ്പോൾ സെർവറുമായി ബന്ധപ്പെടാൻ സാധിച്ചില്ല. ദയവായി അല്പം കഴിഞ്ഞ് ശ്രമിക്കൂ." : "Sorry, I couldn't reach the kitchen right now. Try again in a moment.", 'ai');
+    const errText = isMl ? "ക്ഷമിക്കണം, ഇപ്പോൾ സെർവറുമായി ബന്ധപ്പെടാൻ സാധിച്ചില്ല. ദയവായി അല്പം കഴിഞ്ഞ് ശ്രമിക്കൂ." : "Sorry, I couldn't reach the kitchen right now. Try again in a moment.";
+    appendMsg(errText, 'ai');
   }
 }
 

@@ -19,7 +19,7 @@
       <a href="/menu" class="{{ 'active' if request.url.path == '/menu' }}">Menu</a>
       <a href="/reserve" class="{{ 'active' if request.url.path == '/reserve' }}">Reserve Table</a>
       <a href="/ai-assistant" class="{{ 'active' if request.url.path == '/ai-assistant' }}">AI Assistant (CafeMate)</a>
-      <a href="/orders" class="{{ 'active' if request.url.path == '/orders' }}">My Orders</a>
+      <a href="/profile" class="{{ 'active' if request.url.path == '/profile' or request.url.path == '/orders' }}">My Profile</a>
       {% if current_user %}
         {% if current_user.is_admin %}
         <a href="/admin/orders" class="{{ 'active' if request.url.path.startswith('/admin') }}">Admin</a>

@@ -133,6 +133,11 @@ class AIRecommendRequest(BaseModel):
     message: str
 
 
+class TTSRequest(BaseModel):
+    text: str
+    lang: str = "en-IN"
+
+
 class AIRecommendedDish(BaseModel):
     food_id: int
     food_name: str

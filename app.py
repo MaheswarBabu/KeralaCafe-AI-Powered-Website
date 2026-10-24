@@ -18,7 +18,7 @@ from typing import Optional, List
 from fastapi import FastAPI, Depends, HTTPException, Request, Form, File, UploadFile
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
@@ -29,6 +29,7 @@ import schemas
 import ai_service
 import auth
 import email_service
+import tts_service
 
 Base.metadata.create_all(bind=engine)
 
@@ -105,14 +106,21 @@ def checkout_page(request: Request, db: Session = Depends(get_db)):
     return render(request, "checkout.html", db, {"user": user})
 
 
+@app.get("/profile")
+def profile_page(request: Request, db: Session = Depends(get_db)):
+    user = auth.get_current_user(request, db)
+    return render(request, "profile.html", db, {"user": user})
+
+
 @app.get("/orders")
-def orders_page(request: Request, db: Session = Depends(get_db)):
-    return render(request, "orders.html", db)
+def orders_page_redirect():
+    return RedirectResponse(url="/profile", status_code=303)
 
 
 @app.get("/ai-assistant")
 def ai_assistant_page(request: Request, db: Session = Depends(get_db)):
-    return render(request, "ai_assistant.html", db)
+    categories = sorted({f.category for f in db.query(models.Food).filter(models.Food.availability == True).all()})  # noqa: E712
+    return render(request, "ai_assistant.html", db, {"categories": categories})
 
 
 # ---------------------- Auth pages ----------------------
@@ -328,6 +336,68 @@ def create_reservation(payload: schemas.ReservationCreate, request: Request, db:
     return reservation
 
 
+def _serialize_reservation(r: models.Reservation):
+    return {
+        "reservation_id": r.reservation_id,
+        "customer_name": r.customer_name,
+        "phone": r.phone,
+        "email": r.email,
+        "reservation_date": r.reservation_date,
+        "reservation_time": r.reservation_time,
+        "guests": r.guests,
+        "special_request": r.special_request,
+        "table_id": r.table_id,
+        "table_number": r.table.table_number if r.table else None,
+        "status": r.status,
+        "admin_note": r.admin_note,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    }
+
+
+@app.get("/api/reservations/mine")
+def get_my_reservations(request: Request, db: Session = Depends(get_db)):
+    user = auth.get_current_user(request, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Please log in to view your reservations.")
+    reservations = db.query(models.Reservation).filter(
+        or_(models.Reservation.user_id == user.user_id, models.Reservation.phone == user.phone)
+    ).order_by(models.Reservation.created_at.desc()).all()
+    return [_serialize_reservation(r) for r in reservations]
+
+
+@app.get("/api/reservations/phone/{phone}")
+def get_reservations_by_phone(phone: str, db: Session = Depends(get_db)):
+    reservations = db.query(models.Reservation).filter(models.Reservation.phone == phone).order_by(models.Reservation.created_at.desc()).all()
+    if not reservations:
+        raise HTTPException(status_code=404, detail="No reservations found for this phone number.")
+    return [_serialize_reservation(r) for r in reservations]
+
+
+@app.post("/api/reservations/{reservation_id}/cancel")
+def cancel_reservation_api(reservation_id: int, request: Request, db: Session = Depends(get_db)):
+    reservation = db.query(models.Reservation).filter(models.Reservation.reservation_id == reservation_id).first()
+    if not reservation:
+        raise HTTPException(status_code=404, detail="Reservation not found")
+
+    current_user = auth.get_current_user(request, db)
+    if current_user and reservation.user_id and reservation.user_id != current_user.user_id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="You do not have permission to cancel this reservation.")
+
+    if reservation.status == "cancelled":
+        return {"ok": True, "message": "Reservation is already cancelled", "status": "cancelled"}
+
+    reservation.status = "cancelled"
+    db.commit()
+    db.refresh(reservation)
+
+    try:
+        email_service.send_reservation_cancellation(reservation, "Cancelled by customer")
+    except Exception as e:
+        print(f"[email_service] Error sending cancellation email: {e}")
+
+    return {"ok": True, "message": "Reservation cancelled successfully", "status": "cancelled"}
+
+
 @app.get("/api/reservations/{reservation_id}", response_model=schemas.ReservationOut)
 def get_reservation(reservation_id: int, db: Session = Depends(get_db)):
     r = db.query(models.Reservation).filter(models.Reservation.reservation_id == reservation_id).first()
@@ -439,12 +509,54 @@ def get_orders_by_phone(phone: str, db: Session = Depends(get_db)):
     return [_serialize_order(o) for o in orders]
 
 
+@app.post("/api/orders/{order_id}/cancel")
+def cancel_order_api(order_id: int, request: Request, db: Session = Depends(get_db)):
+    order = db.query(models.Order).filter(models.Order.order_id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    current_user = auth.get_current_user(request, db)
+    if current_user and order.user_id and order.user_id != current_user.user_id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="You do not have permission to cancel this order.")
+
+    if order.status == "Cancelled":
+        return {"ok": True, "message": "Order is already cancelled", "status": "Cancelled"}
+
+    if order.status == "Delivered":
+        raise HTTPException(status_code=400, detail="Cannot cancel an order that has already been delivered.")
+
+    order.status = "Cancelled"
+    order.admin_note = (order.admin_note + "\n" if order.admin_note else "") + "Cancelled by customer"
+    db.commit()
+    db.refresh(order)
+
+    try:
+        email_service.send_order_cancellation(order, "Cancelled by customer")
+    except Exception as e:
+        print(f"[email_service] Error sending order cancellation email: {e}")
+
+    return {"ok": True, "message": "Order cancelled successfully", "status": "Cancelled"}
+
+
 # ---------------------- AI Food Assistant ----------------------
 
 @app.post("/api/ai/recommend", response_model=schemas.AIRecommendResponse)
 def ai_recommend(payload: schemas.AIRecommendRequest, db: Session = Depends(get_db)):
     reply, recommendations = ai_service.get_recommendation(db, payload.message)
     return {"reply": reply, "recommendations": recommendations}
+
+
+@app.post("/api/tts")
+async def text_to_speech(payload: schemas.TTSRequest):
+    """
+    Server-side speech for CafeMate (English + Malayalam neural voices).
+    Returns MP3 audio; returns 204 (no body) if speech couldn't be produced,
+    so the page quietly falls back to the browser's built-in voice.
+    """
+    audio = await tts_service.synthesize(payload.text, payload.lang)
+    if not audio:
+        return Response(status_code=204)
+    return Response(content=audio, media_type="audio/mpeg")
 
 
 # =====================================================================

@@ -1,0 +1,359 @@
+﻿{% extends "base.html" %}
+{% block title %}My Profile{% endblock %}
+{% block content %}
+
+<section class="th-section">
+  <div class="th-container" style="max-width:680px;">
+    <span class="th-eyebrow">ðŸ‘¤ Account &amp; Activity</span>
+    <h2>My Profile</h2>
+
+    {% if current_user %}
+    <div class="th-card" style="margin-bottom:24px; display:flex; align-items:center; gap:18px; flex-wrap:wrap;">
+      <div style="width:54px; height:54px; border-radius:50%; background:var(--gold); color:var(--espresso); display:flex; align-items:center; justify-content:center; font-size:1.5rem; font-weight:700; font-family:var(--font-display);">
+        {{ current_user.name[0]|upper }}
+      </div>
+      <div style="flex:1; min-width:200px;">
+        <h3 style="margin:0 0 2px; font-size:1.2rem;">{{ current_user.name }}</h3>
+        <p style="margin:0; font-size:0.88rem; color:var(--espresso-soft);">
+          ðŸ“ž {{ current_user.phone }} &nbsp;&middot;&nbsp; âœ‰ï¸ {{ current_user.email }}
+        </p>
+      </div>
+    </div>
+    {% else %}
+    <p style="color:var(--espresso-soft); margin-bottom:20px;">
+      Enter your phone number or Order/Reservation ID to look up your activity, or <a href="/login?next=/profile" style="color:var(--chili-deep); font-weight:600;">log in</a> to see everything automatically.
+    </p>
+
+    <div class="th-card" style="margin-bottom:24px;">
+      <div class="th-form-grid">
+        <div class="th-field">
+          <label>Phone Number</label>
+          <input type="tel" id="phoneInput" placeholder="e.g. 9876543210">
+        </div>
+        <div class="th-field">
+          <label>Or ID (Order / Reservation)</label>
+          <input type="text" id="idInput" placeholder="e.g. KC1025 or 10">
+        </div>
+      </div>
+      <button class="btn btn-primary" id="lookupBtn" style="margin-top:16px;">Find My Details</button>
+    </div>
+    {% endif %}
+
+    <!-- Tabs for Switching between Orders & Reservations -->
+    <div class="th-filters" style="margin-bottom:20px;">
+      <button type="button" class="th-chip active" id="tabOrdersBtn" onclick="switchTab('orders')">
+        ðŸ›ï¸ My Orders
+      </button>
+      <button type="button" class="th-chip" id="tabReservationsBtn" onclick="switchTab('reservations')">
+        ðŸª‘ Table Reservations
+      </button>
+    </div>
+
+    <!-- Orders Section -->
+    <div id="ordersSection">
+      <div id="ordersList" style="display:flex; flex-direction:column; gap:20px;">
+        <p class="th-empty">Loading orders...</p>
+      </div>
+    </div>
+
+    <!-- Reservations Section -->
+    <div id="reservationsSection" style="display:none;">
+      <div id="reservationsList" style="display:flex; flex-direction:column; gap:20px;">
+        <p class="th-empty">Loading reservations...</p>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+{% endblock %}
+{% block scripts %}
+<script>
+const IS_LOGGED_IN = {{ 'true' if current_user else 'false' }};
+const STAGES = ['Order Placed', 'Confirmed', 'Preparing', 'Out for Delivery', 'Delivered'];
+
+let currentTab = 'orders';
+
+function switchTab(tab) {
+  currentTab = tab;
+  const ordersBtn = document.getElementById('tabOrdersBtn');
+  const resBtn = document.getElementById('tabReservationsBtn');
+  const ordersSec = document.getElementById('ordersSection');
+  const resSec = document.getElementById('reservationsSection');
+
+  if (tab === 'orders') {
+    ordersBtn.classList.add('active');
+    resBtn.classList.remove('active');
+    ordersSec.style.display = 'block';
+    resSec.style.display = 'none';
+  } else {
+    resBtn.classList.add('active');
+    ordersBtn.classList.remove('active');
+    ordersSec.style.display = 'none';
+    resSec.style.display = 'block';
+  }
+}
+
+// ---------------- ORDER RENDERING & CANCELLATION ----------------
+function renderOrder(order) {
+  const isCancelled = order.status === 'Cancelled';
+  const isChangeReq = order.status === 'Change Requested';
+  const isDelivered = order.status === 'Delivered';
+  const canCancel = !isCancelled && !isDelivered;
+
+  const cancelBtnHtml = canCancel ? `
+    <div style="margin-top:14px; padding-top:10px; border-top:1px solid var(--line); display:flex; justify-content:flex-end;">
+      <button type="button" class="btn btn-sm btn-outline" style="color:var(--chili); border-color:var(--chili);" onclick="cancelOrder(${order.order_id}, '${order.order_code}')">
+        Cancel Order
+      </button>
+    </div>
+  ` : '';
+
+  if (isCancelled || isChangeReq) {
+    const noteHtml = order.admin_note ? `<p style="background:var(--ivory-dim); padding:10px 14px; border-radius:8px; font-size:0.85rem; margin-top:10px;"><strong>Note:</strong> ${order.admin_note}</p>` : '';
+    const itemsHtml = order.items.map(i => `
+      <div class="th-summary-row"><span>${i.food_name} Ã— ${i.quantity}</span><span>â‚¹${i.price * i.quantity}</span></div>
+    `).join('');
+    return `
+      <div class="th-card" id="order-card-${order.order_id}">
+        <div class="th-heading-row" style="margin-bottom:8px;">
+          <strong class="mono">Order #${order.order_code}</strong>
+          <span class="th-tag th-tag-nonveg">${order.status}</span>
+        </div>
+        ${itemsHtml}
+        <div class="th-summary-row total"><span>Total</span><span>â‚¹${order.total_amount}</span></div>
+        ${noteHtml}
+        ${cancelBtnHtml}
+      </div>
+    `;
+  }
+
+  const currentIdx = STAGES.indexOf(order.status);
+  const stepsHtml = STAGES.map((stage, idx) => {
+    const cls = idx < currentIdx ? 'done' : (idx === currentIdx ? 'current' : '');
+    const icon = idx < currentIdx ? 'âœ“' : (idx + 1);
+    return `<div class="th-status-step ${cls}"><div class="th-status-dot">${icon}</div><span>${stage}</span></div>`;
+  }).join('');
+
+  const itemsHtml = order.items.map(i => `
+    <div class="th-summary-row"><span>${i.food_name} Ã— ${i.quantity}</span><span>â‚¹${i.price * i.quantity}</span></div>
+  `).join('');
+
+  return `
+    <div class="th-card" id="order-card-${order.order_id}">
+      <div class="th-heading-row" style="margin-bottom:8px;">
+        <strong class="mono">Order #${order.order_code}</strong>
+        <span class="th-tag th-tag-veg">ðŸŸ¢ ${order.status}</span>
+      </div>
+      ${itemsHtml}
+      <div class="th-summary-row total"><span>Total</span><span>â‚¹${order.total_amount}</span></div>
+      <div class="th-status-track">${stepsHtml}</div>
+      ${cancelBtnHtml}
+    </div>
+  `;
+}
+
+async function cancelOrder(orderId, orderCode) {
+  if (!confirm(`Are you sure you want to cancel Order #${orderCode || orderId}?`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/orders/${orderId}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Could not cancel order');
+    }
+
+    TasteHub.toast(`Order #${orderCode || orderId} cancelled successfully.`);
+    // Refresh user activity
+    if (IS_LOGGED_IN) {
+      loadUserData();
+    } else {
+      lookupGuestData();
+    }
+  } catch (e) {
+    TasteHub.toast(e.message || 'Failed to cancel order');
+  }
+}
+
+// ---------------- RESERVATION RENDERING & CANCELLATION ----------------
+function renderReservation(res) {
+  const isCancelled = res.status.toLowerCase() === 'cancelled';
+  const tagClass = isCancelled ? 'th-tag-nonveg' : 'th-tag-veg';
+  const statusLabel = isCancelled ? 'Cancelled' : 'Confirmed';
+
+  const noteHtml = res.admin_note ? `
+    <p style="background:var(--ivory-dim); padding:10px 14px; border-radius:8px; font-size:0.85rem; margin-top:10px;">
+      <strong>Note:</strong> ${res.admin_note}
+    </p>
+  ` : '';
+
+  const cancelActionHtml = !isCancelled ? `
+    <div style="margin-top:14px; pt:10px; border-top:1px solid var(--line); display:flex; justify-content:flex-end;">
+      <button type="button" class="btn btn-sm btn-outline" style="color:var(--chili); border-color:var(--chili);" onclick="cancelReservation(${res.reservation_id})">
+        Cancel Reservation
+      </button>
+    </div>
+  ` : '';
+
+  return `
+    <div class="th-card" id="reservation-card-${res.reservation_id}">
+      <div class="th-heading-row" style="margin-bottom:8px;">
+        <strong class="mono">Reservation #${res.reservation_id}</strong>
+        <span class="th-tag ${tagClass}">${statusLabel}</span>
+      </div>
+      <div class="th-summary-row"><span>Date</span><span>ðŸ“… ${res.reservation_date}</span></div>
+      <div class="th-summary-row"><span>Time</span><span>â° ${res.reservation_time}</span></div>
+      <div class="th-summary-row"><span>Guests</span><span>ðŸ‘¥ ${res.guests} people</span></div>
+      <div class="th-summary-row"><span>Table</span><span>ðŸª‘ ${res.table_number ? res.table_number : 'Assigned upon arrival'}</span></div>
+      ${res.special_request ? `<div class="th-summary-row"><span>Special Request</span><span>${res.special_request}</span></div>` : ''}
+      ${noteHtml}
+      ${cancelActionHtml}
+    </div>
+  `;
+}
+
+async function cancelReservation(reservationId) {
+  if (!confirm(`Are you sure you want to cancel Reservation #${reservationId}?`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/reservations/${reservationId}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || 'Could not cancel reservation');
+    }
+
+    TasteHub.toast(`Reservation #${reservationId} cancelled successfully.`);
+    // Refresh user activity
+    if (IS_LOGGED_IN) {
+      loadUserData();
+    } else {
+      lookupGuestData();
+    }
+  } catch (e) {
+    TasteHub.toast(e.message || 'Failed to cancel reservation');
+  }
+}
+
+// ---------------- DATA LOADING ----------------
+async function loadUserData() {
+  const ordersList = document.getElementById('ordersList');
+  const reservationsList = document.getElementById('reservationsList');
+
+  // Load Orders
+  try {
+    const res = await fetch('/api/orders/mine');
+    if (!res.ok) throw new Error('failed');
+    const data = await res.json();
+    ordersList.innerHTML = data.length
+      ? data.map(renderOrder).join('')
+      : '<p class="th-empty">You haven\'t placed any orders yet. <a href="/menu" style="color:var(--chili); font-weight:600;">Browse Menu</a></p>';
+  } catch (e) {
+    ordersList.innerHTML = '<p class="th-empty">Could not load orders right now.</p>';
+  }
+
+  // Load Reservations
+  try {
+    const res = await fetch('/api/reservations/mine');
+    if (!res.ok) throw new Error('failed');
+    const data = await res.json();
+    reservationsList.innerHTML = data.length
+      ? data.map(renderReservation).join('')
+      : '<p class="th-empty">You don\'t have any table reservations yet. <a href="/reserve" style="color:var(--chili); font-weight:600;">Reserve a Table</a></p>';
+  } catch (e) {
+    reservationsList.innerHTML = '<p class="th-empty">Could not load reservations right now.</p>';
+  }
+}
+
+async function lookupGuestData() {
+  const phone = document.getElementById('phoneInput')?.value.trim() || '';
+  const rawId = document.getElementById('idInput')?.value.trim() || '';
+  const ordersList = document.getElementById('ordersList');
+  const reservationsList = document.getElementById('reservationsList');
+
+  if (!phone && !rawId) {
+    TasteHub.toast('Please enter a phone number or ID');
+    return;
+  }
+
+  ordersList.innerHTML = '<p class="th-empty">Searching orders...</p>';
+  reservationsList.innerHTML = '<p class="th-empty">Searching reservations...</p>';
+
+  // Lookup Orders
+  try {
+    if (rawId) {
+      let orderId = rawId;
+      const match = rawId.match(/(\d+)/);
+      if (match) {
+        let num = parseInt(match[1]);
+        if (rawId.toUpperCase().startsWith('KC') || rawId.toUpperCase().startsWith('TH')) {
+          if (num > 1000) num -= 1000;
+        }
+        orderId = num;
+      }
+      const res = await fetch(`/api/orders/${orderId}`);
+      if (res.ok) {
+        const data = await res.json();
+        ordersList.innerHTML = renderOrder(data);
+      } else {
+        ordersList.innerHTML = '<p class="th-empty">No matching order found with this ID.</p>';
+      }
+    } else if (phone) {
+      const res = await fetch(`/api/orders/phone/${encodeURIComponent(phone)}`);
+      if (res.ok) {
+        const data = await res.json();
+        ordersList.innerHTML = data.map(renderOrder).join('');
+      } else {
+        ordersList.innerHTML = '<p class="th-empty">No orders found for this phone number.</p>';
+      }
+    }
+  } catch (e) {
+    ordersList.innerHTML = '<p class="th-empty">No orders found.</p>';
+  }
+
+  // Lookup Reservations
+  try {
+    if (rawId) {
+      const match = rawId.match(/(\d+)/);
+      const resId = match ? parseInt(match[1]) : rawId;
+      const res = await fetch(`/api/reservations/${resId}`);
+      if (res.ok) {
+        const data = await res.json();
+        reservationsList.innerHTML = renderReservation(data);
+      } else {
+        reservationsList.innerHTML = '<p class="th-empty">No matching reservation found with this ID.</p>';
+      }
+    } else if (phone) {
+      const res = await fetch(`/api/reservations/phone/${encodeURIComponent(phone)}`);
+      if (res.ok) {
+        const data = await res.json();
+        reservationsList.innerHTML = data.map(renderReservation).join('');
+      } else {
+        reservationsList.innerHTML = '<p class="th-empty">No reservations found for this phone number.</p>';
+      }
+    }
+  } catch (e) {
+    reservationsList.innerHTML = '<p class="th-empty">No reservations found.</p>';
+  }
+}
+
+if (IS_LOGGED_IN) {
+  loadUserData();
+} else {
+  document.getElementById('ordersList').innerHTML = '<p class="th-empty">Enter your details above to view orders.</p>';
+  document.getElementById('reservationsList').innerHTML = '<p class="th-empty">Enter your details above to view reservations.</p>';
+  document.getElementById('lookupBtn')?.addEventListener('click', lookupGuestData);
+}
+</script>
+{% endblock %}

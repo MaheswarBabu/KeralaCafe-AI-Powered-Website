@@ -57,6 +57,25 @@ export GEMINI_API_KEY="AIzaSy..."      # free key: https://aistudio.google.com/a
 export GEMINI_MODEL="gemini-2.5-flash"  # optional, this is the default
 ```
 
+## CafeMate's spoken voice (English + Malayalam)
+
+CafeMate speaks its replies out loud. It first asks the server for audio
+(`/api/tts`, in `tts_service.py`) which uses Microsoft's free `edge-tts`
+neural voices - no API key needed. This is what makes Malayalam actually
+work: most visitors' browsers/OSes don't ship a Malayalam voice at all, so
+without this, Malayalam replies would either be silent or read in an
+English voice. A reply that mixes Malayalam and English (e.g. a Malayalam
+sentence naming an English dish) is split by script and each part is read
+by the matching voice, then stitched back together.
+
+If the server can't reach that voice service for any reason, `/api/tts`
+just returns 204 and the browser's own built-in voice is used instead - so
+this never blocks the assistant from speaking, it only makes it sound
+better (and gives Malayalam a real voice) when it works. No setup is
+required; `TTS_VOICE_EN` / `TTS_VOICE_ML` in `.env.example` are optional
+overrides if you'd like a different Microsoft voice (see `edge-tts --list-voices`
+for the full catalogue).
+
 ## 5. (Optional) Enable real emails
 
 Order confirmations, cancellations, and "item change requested" notices are

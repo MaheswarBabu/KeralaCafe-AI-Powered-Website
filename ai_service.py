@@ -120,6 +120,39 @@ def _is_malayalam(text: str) -> bool:
     return any(w in text_lower for w in manglish_words)
 
 
+def _is_gibberish(msg: str) -> bool:
+    """Heuristic check for meaningless keyboard-mash input like 'gg', 'safgdg',
+    'asdkjfh' - as opposed to real (if unrelated) words. Skips Malayalam script
+    text entirely, since the Latin vowel/consonant heuristic doesn't apply."""
+    if re.search(r"[\u0D00-\u0D7F]", msg):
+        return False
+
+    letters = re.sub(r"[^a-z]", "", msg.lower())
+    if len(letters) < 2:
+        return False  # too short to judge either way - let it fall through
+
+    vowels = set("aeiou")
+    vowel_count = sum(1 for c in letters if c in vowels)
+    vowel_ratio = vowel_count / len(letters)
+
+    max_consonant_run = 0
+    run = 0
+    for c in letters:
+        if c not in vowels:
+            run += 1
+            max_consonant_run = max(max_consonant_run, run)
+        else:
+            run = 0
+
+    if vowel_count == 0:
+        return True                       # no vowels at all ("gg", "xyz")
+    if len(letters) >= 4 and vowel_ratio < 0.2:
+        return True                       # almost no vowels ("safgdg")
+    if max_consonant_run >= 5:
+        return True                       # long unbroken consonant mash
+    return False
+
+
 def _menu_as_list(db: Session) -> List[Food]:
     return db.query(Food).filter(Food.availability == True).all()  # noqa: E712
 
@@ -128,6 +161,50 @@ def _is_off_topic(msg: str) -> bool:
     has_off_topic = any(kw in msg for kw in OFF_TOPIC_KEYWORDS)
     has_food_signal = any(kw in msg for kw in FOOD_SIGNAL_KEYWORDS)
     return has_off_topic and not has_food_signal
+
+
+# Generic ingredient/category words deliberately excluded from single-word
+# dish matching below - they either match more than one dish today, or are
+# likely to as the menu grows, so a bare mention of one of these should be
+# treated as a vague request (handled by category/veg filtering) rather
+# than locked onto a single "exact" dish.
+GENERIC_DISH_WORDS = {
+    "veg", "vegetarian", "nonveg", "spicy", "mild", "sweet", "dessert",
+    "desserts", "starter", "starters", "beverage", "beverages", "drink",
+    "juice", "curry", "rice", "dish", "menu", "food", "chicken", "mutton",
+    "fish", "paneer", "price", "budget", "thali", "roll", "fry", "masala",
+    "gravy", "curd",
+}
+
+
+def _unique_single_word_match(msg: str, foods: List[Food]) -> Optional[Food]:
+    """A single significant word in the message (e.g. "biryani") that
+    uniquely identifies exactly one dish - even with a spelling variant
+    like biryani/biriyani - counts as a direct match. If the word could
+    refer to more than one dish, it's treated as ambiguous/vague instead
+    (returns None) so the caller falls back to showing several options."""
+    words = [w for w in re.findall(r"[a-zA-Z]+", msg) if len(w) >= 4 and w not in GENERIC_DISH_WORDS]
+    if not words:
+        return None
+
+    food_words: dict = {}
+    for f in foods:
+        for w in re.findall(r"[a-zA-Z]+", f.food_name.lower()):
+            if len(w) >= 4:
+                food_words.setdefault(w, set()).add(f.food_id)
+
+    for qw in words:
+        matched_ids = set()
+        if qw in food_words:
+            matched_ids |= food_words[qw]
+        else:
+            close = difflib.get_close_matches(qw, food_words.keys(), n=3, cutoff=0.75)
+            for c in close:
+                matched_ids |= food_words[c]
+        if len(matched_ids) == 1:
+            fid = next(iter(matched_ids))
+            return next(f for f in foods if f.food_id == fid)
+    return None
 
 
 def _closest_food_match(msg: str, foods: List[Food]) -> Optional[Food]:
@@ -155,6 +232,21 @@ def _closest_food_match(msg: str, foods: List[Food]) -> Optional[Food]:
             for name, food in names.items():
                 if phrase in name:
                     return food
+
+    # 2.5. A single significant word that unambiguously names one dish
+    # (e.g. "biryani" when only one biryani is on the menu).
+    unique_match = _unique_single_word_match(msg, foods)
+    if unique_match:
+        return unique_match
+
+    # A bare generic ingredient/category word (e.g. just "chicken" or
+    # "paneer") is deliberately NOT resolved via fuzzy matching below -
+    # it's ambiguous by design (see GENERIC_DISH_WORDS) and should fall
+    # through to preference-based filtering instead of the whole-message
+    # fuzzy match below picking an arbitrary "closest" dish.
+    stripped_words = [w for w in re.findall(r"[a-zA-Z]+", msg)]
+    if stripped_words and all(w in GENERIC_DISH_WORDS for w in stripped_words):
+        return None
 
     # 3. Fuzzy match on the whole message, then on smaller windows -
     matches = difflib.get_close_matches(msg, names.keys(), n=1, cutoff=0.72)
@@ -267,21 +359,28 @@ def _rule_based_recommend(message: str, foods: List[Food]):
     is_ml = _is_malayalam(message)
     prefs = _parse_preferences(msg)
 
-    # 1. Direct dish match
+    # 0. Gibberish check - meaningless keyboard-mash input ("gg", "safgdg")
+    # gets told plainly that it's not understood, with no recommendations.
+    if _is_gibberish(msg):
+        if is_ml:
+            return ("ക്ഷമിക്കണം, എനിക്ക് അത് മനസ്സിലായില്ല. ദയവായി വ്യക്തമായി എഴുതൂ - "
+                    "ഉദാഹരണത്തിന് 'സ്പൈസി ചിക്കൻ വേണം' എന്ന് പറയാം.", [])
+        return ("Sorry, I couldn't understand that - it doesn't look like a real "
+                "request. Could you tell me what you'd like to eat, e.g. \"something "
+                "spicy and vegetarian\"?", [])
+
+    # 1. Direct dish match - a specific, named dish. Show ONLY that dish,
+    #    with no extra "similar" padding, since the customer asked for one
+    #    exact thing (e.g. "biryani").
     direct_match = _closest_food_match(msg, foods)
     if direct_match:
         reason = "നിങ്ങൾ ചോദിച്ച അതേ വിഭവം!" if is_ml else "Exactly what you asked for!"
         recs = [_to_rec(direct_match, reason=reason, is_ml=is_ml)]
-        similar = [
-            f for f in _filter_foods(foods, prefs, category_override=direct_match.category)
-            if f.food_id != direct_match.food_id
-        ][:2]
-        recs += [_to_rec(f, is_ml=is_ml) for f in similar]
 
         if is_ml:
-            reply = f"നല്ല വാർത്ത! {direct_match.food_name} ഞങ്ങളുടെ മെനുവിൽ ലഭ്യമാണ്. ഇതാ വിവരങ്ങൾ:"
+            reply = f"നല്ല വാർത്ത! {direct_match.food_name} ഞങ്ങളുടെ മെനുവിൽ ലഭ്യമാണ്."
         else:
-            reply = f"Good news - {direct_match.food_name} is on the menu! Here it is:"
+            reply = f"Good news - {direct_match.food_name} is on the menu!"
         return reply, recs
 
     # 2. Unavailable item substitution
@@ -413,21 +512,36 @@ Follow these rules carefully:
    "something sweet", "a dessert", "a starter", "a drink", etc. without
    naming a specific dish, pick the best-rated items from that category.
 
-4. If the requested dish IS actually on the menu, confirm it enthusiastically
-   and recommend it (plus 1-2 similar dishes if useful).
+4. If the requested dish IS ACTUALLY on the menu and the customer named ONE
+   specific dish (e.g. "biryani", "chicken 65"), confirm it enthusiastically
+   and return ONLY that single dish in "recommendations" - do not pad the
+   list with other similar dishes they didn't ask for.
 
-5. Respect stated preferences: vegetarian/non-vegetarian, spice level, and
+5. VAGUE / MULTI-INGREDIENT REQUESTS GET OPTIONS. If the customer describes
+   what they want in general terms rather than naming one dish - ingredients
+   ("chicken and rice"), a mood ("something filling"), or multiple loose
+   criteria - return 2-5 similar matching dishes so they can choose, the same
+   way you handle vague cravings in rule 3.
+
+6. REJECT GIBBERISH. If the customer's message is meaningless keyboard-mash
+   text with no discernible words or intent (e.g. "gg", "safgdg", "asdkjfh"),
+   do not guess or recommend anything. Set "gibberish" to true, leave
+   "recommendations" empty, and in "reply" say plainly that you couldn't
+   understand the message and ask them to rephrase what they'd like to eat.
+
+7. Respect stated preferences: vegetarian/non-vegetarian, spice level, and
    budget (price ceiling), whenever they're mentioned.
 
-6. MULTILINGUAL SUPPORT (MALAYALAM / ENGLISH):
+8. MULTILINGUAL SUPPORT (MALAYALAM / ENGLISH):
    If the customer speaks, types, or asks in Malayalam (മലയാളം script or Manglish),
    understand their request, match with our menu items, and write the "reply"
    and each recommendation's "reason" in natural, friendly Malayalam (keeping the food_name
-   as written in the menu so it matches the order system).
+   as written in the menu so it matches the order system). This also applies
+   to the off-topic and gibberish replies in rules 1 and 6.
 
 Respond with STRICT JSON ONLY (no markdown, no code fences, no commentary)
 in exactly this shape:
-{{"off_topic": <true|false>, "reply": "<one short friendly sentence>",
+{{"off_topic": <true|false>, "gibberish": <true|false>, "reply": "<one short friendly sentence>",
 "recommendations": [{{"food_id": <int>, "food_name": "<string>",
 "price": <number>, "reason": "<short reason>"}}]}}
 
@@ -447,7 +561,12 @@ MENU:
     text = (response.text or "").strip()
     text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     data = json.loads(text)
-    return data.get("reply", ""), data.get("recommendations", []), data.get("off_topic", False)
+    return (
+        data.get("reply", ""),
+        data.get("recommendations", []),
+        data.get("off_topic", False),
+        data.get("gibberish", False),
+    )
 
 
 def get_recommendation(db: Session, message: str):
@@ -455,8 +574,8 @@ def get_recommendation(db: Session, message: str):
 
     if GEMINI_API_KEY:
         try:
-            reply, recs, off_topic = _gemini_recommend(message, foods)
-            if off_topic:
+            reply, recs, off_topic, gibberish = _gemini_recommend(message, foods)
+            if off_topic or gibberish:
                 return reply, []
             # Guard: drop any food_id Gemini may have hallucinated
             valid_ids = {f.food_id for f in foods}

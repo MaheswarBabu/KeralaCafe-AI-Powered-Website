@@ -29,9 +29,15 @@ def _send(to_email: str, subject: str, body: str) -> bool:
         return False
 
     if not (SMTP_HOST and SMTP_USER and SMTP_PASSWORD):
-        print(f"\n----- [email dry-run: SMTP not configured] -----")
-        print(f"To: {to_email}\nSubject: {subject}\n\n{body}")
-        print("--------------------------------------------------\n")
+        try:
+            print(f"\n----- [email dry-run: SMTP not configured] -----")
+            print(f"To: {to_email}\nSubject: {subject}\n\n{body}")
+            print("--------------------------------------------------\n")
+        except UnicodeEncodeError:
+            safe_body = body.encode("ascii", errors="replace").decode("ascii")
+            safe_subject = subject.encode("ascii", errors="replace").decode("ascii")
+            print(f"To: {to_email}\nSubject: {safe_subject}\n\n{safe_body}")
+            print("--------------------------------------------------\n")
         return False
 
     msg = MIMEText(body)
@@ -72,7 +78,7 @@ Payment: {order.payment_method.upper()}
 Delivery Address: {order.address}
 
 We'll notify you as your order moves through preparation and delivery.
-You can track it any time at /orders.
+You can track it any time at /profile.
 
 - Kerala Cafe
 """

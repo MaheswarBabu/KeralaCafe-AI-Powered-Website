@@ -99,6 +99,7 @@ async function confirmReservation() {
         <div class="th-result-row"><span>Date</span><span>${data.reservation_date}</span></div>
         <div class="th-result-row"><span>Time</span><span>${data.reservation_time}</span></div>
         <div class="th-result-row"><span>Guests</span><span>${data.guests}</span></div>
+        <a href="/profile" class="btn btn-primary btn-block" style="margin-top:14px;">View in My Profile</a>
       </div>`;
   } else if (res.status === 401) {
     TasteHub.toast('Please log in to confirm your reservation.');

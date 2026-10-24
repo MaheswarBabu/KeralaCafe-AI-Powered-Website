@@ -90,7 +90,7 @@ document.getElementById('checkoutForm').addEventListener('submit', async (e) => 
         <strong>🟢 Order Confirmed!</strong>
         <div class="th-result-row"><span>Order</span><span>#${data.order_code}</span></div>
         <div class="th-result-row"><span>Total</span><span>₹${data.total_amount}</span></div>
-        <a href="/orders" class="btn btn-primary btn-block" style="margin-top:14px;">Track My Order</a>
+        <a href="/profile" class="btn btn-primary btn-block" style="margin-top:14px;">Track My Order</a>
       </div>`;
   } else {
     const err = await res.json();

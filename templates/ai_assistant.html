@@ -17,12 +17,11 @@
           <button type="button" class="th-lang-btn active" data-lang="en-IN" id="langEn">English</button>
           <button type="button" class="th-lang-btn" data-lang="ml-IN" id="langMl">മലയാളം</button>
         </div>
+        <button type="button" class="th-lang-btn active" id="soundToggle" title="Toggle spoken replies" style="margin-left:6px;">🔊</button>
       </div>
 
       <div class="th-chat-log" id="chatLog">
-        <div class="th-msg th-msg-ai" id="welcomeMsg">
-          Hi! I'm <strong>CafeMate</strong>, your personal food assistant at Kerala Cafe. Tell me what you're in the mood for — vegetarian, spicy, a budget — and I'll pick from our actual menu. You can also press and hold the mic to speak in English or Malayalam!
-        </div>
+        <div class="th-msg th-msg-ai" id="welcomeMsg"></div>
       </div>
 
       <div class="th-suggestions" id="suggestionsContainer">
@@ -77,11 +76,142 @@ const suggestionsContainer = document.getElementById('suggestionsContainer');
 const langEnBtn = document.getElementById('langEn');
 const langMlBtn = document.getElementById('langMl');
 const welcomeMsg = document.getElementById('welcomeMsg');
+const soundToggle = document.getElementById('soundToggle');
+
+const CATEGORIES = {{ categories|tojson }};
 
 let currentLang = 'en-IN';
 let isRecording = false;
 let recognition = null;
 let recordedTranscript = '';
+let soundOn = true;
+
+// ==========================================
+// Text-to-Speech: introduction + spoken replies
+// ==========================================
+// Two layers, tried in this order:
+//   1. /api/tts  - the server's neural voices (English + real Malayalam), so
+//      Malayalam works even when the visitor's device has no Malayalam voice.
+//   2. The browser's built-in speechSynthesis - used only if the server can't
+//      produce audio (it answers 204), so speech never just silently breaks.
+
+let currentAudio = null;   // <audio> element playing a server voice
+let speechToken = 0;       // bumped on every speak()/stop so stale requests never play late
+let pendingSpeech = null;  // speech the browser blocked until the visitor interacts with the page
+
+function stopSpeaking() {
+  speechToken += 1;
+  pendingSpeech = null;
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
+}
+
+function pickVoice(lang) {
+  if (!window.speechSynthesis) return null;
+  const voices = window.speechSynthesis.getVoices();
+  const wantMl = lang === 'ml-IN';
+  let voice = voices.find(v => wantMl ? v.lang.toLowerCase().startsWith('ml') : v.lang.toLowerCase().startsWith('en'));
+  if (!voice && wantMl) voice = voices.find(v => v.lang.toLowerCase().startsWith('en')); // no ML voice installed
+  return voice || null;
+}
+
+function speakWithBrowser(text, lang) {
+  if (!window.speechSynthesis) return;
+  try {
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = lang;
+    const voice = pickVoice(lang);
+    if (voice) utter.voice = voice;
+    utter.rate = 0.98;
+    window.speechSynthesis.speak(utter);
+  } catch (e) { /* TTS not supported - fail silently */ }
+}
+
+async function speak(text, lang) {
+  if (!soundOn || !text) return;
+  const plain = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!plain) return;
+  const targetLang = lang || (/[\u0D00-\u0D7F]/.test(plain) ? 'ml-IN' : 'en-IN');
+
+  stopSpeaking();
+  const myToken = speechToken;
+
+  try {
+    const res = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: plain, lang: targetLang })
+    });
+    if (myToken !== speechToken) return;               // something newer started (or muted) meanwhile
+    if (res.ok && res.status !== 204) {
+      const blob = await res.blob();
+      if (myToken !== speechToken) return;
+      const audio = new Audio(URL.createObjectURL(blob));
+      currentAudio = audio;
+      audio.addEventListener('ended', () => {
+        URL.revokeObjectURL(audio.src);
+        if (currentAudio === audio) currentAudio = null;
+      });
+      try {
+        await audio.play();
+        return;
+      } catch (err) {
+        if (err && err.name === 'NotAllowedError') {
+          // Browsers block sound until the visitor clicks/taps/types on the page.
+          // Keep the speech and play it on their first interaction.
+          currentAudio = null;
+          pendingSpeech = { text: plain, lang: targetLang };
+          return;
+        }
+        // any other playback error -> use the browser voice below
+      }
+    }
+  } catch (e) { /* server unreachable -> browser voice below */ }
+
+  if (myToken === speechToken) speakWithBrowser(plain, targetLang);
+}
+
+['pointerdown', 'keydown'].forEach(evt => {
+  document.addEventListener(evt, () => {
+    if (pendingSpeech) {
+      const p = pendingSpeech;
+      pendingSpeech = null;
+      speak(p.text, p.lang);
+    }
+  }, true);
+});
+
+if (window.speechSynthesis) {
+  window.speechSynthesis.onvoiceschanged = () => {}; // voices load async in some browsers
+}
+
+soundToggle.addEventListener('click', () => {
+  soundOn = !soundOn;
+  soundToggle.textContent = soundOn ? '🔊' : '🔇';
+  soundToggle.classList.toggle('active', soundOn);
+  if (!soundOn) stopSpeaking();
+});
+
+function introMessage(lang) {
+  const list = CATEGORIES.length ? CATEGORIES.join(', ') : null;
+  if (lang === 'ml-IN') {
+    const catText = list ? `ഇന്ന് ഞങ്ങളുടെ മെനുവിൽ ${list} എന്നിവ ലഭ്യമാണ്. ` : '';
+    return `നമസ്കാരം! ഞാൻ CafeMate ആണ്, Kerala Cafe യുടെ ഭക്ഷണ സഹായി. ` +
+           catText +
+           `നിങ്ങൾക്ക് എന്താണ് കഴിക്കാൻ താല്പര്യം എന്ന് പറയൂ, അല്ലെങ്കിൽ മൈക്ക് അമർത്തിപ്പിടിച്ച് സംസാരിക്കൂ - ഞാൻ നിങ്ങളുടെ ഓർഡർ എടുക്കാൻ സഹായിക്കാം!`;
+  }
+  const catText = list ? `Today our menu has ${list} available. ` : '';
+  return `Hi! I'm CafeMate, your personal food assistant at Kerala Cafe. ` +
+         catText +
+         `Tell me what you're in the mood for — vegetarian, spicy, a budget — and I'll pick from our actual menu. You can also press and hold the mic to speak in English or Malayalam!`;
+}
+
+function showIntro(lang) {
+  const text = introMessage(lang);
+  welcomeMsg.textContent = text;
+  speak(text, lang);
+}
 
 // Language-specific suggestions
 const suggestions = {
@@ -112,7 +242,7 @@ function renderSuggestions() {
   });
 }
 
-function setLanguage(lang) {
+function setLanguage(lang, announce) {
   currentLang = lang;
   if (lang === 'ml-IN') {
     langMlBtn.classList.add('active');
@@ -127,11 +257,15 @@ function setLanguage(lang) {
   if (recognition) {
     recognition.lang = currentLang;
   }
+  if (announce) {
+    showIntro(lang);
+  }
 }
 
-langEnBtn.addEventListener('click', () => setLanguage('en-IN'));
-langMlBtn.addEventListener('click', () => setLanguage('ml-IN'));
+langEnBtn.addEventListener('click', () => setLanguage('en-IN', true));
+langMlBtn.addEventListener('click', () => setLanguage('ml-IN', true));
 renderSuggestions();
+showIntro(currentLang); // speak the bilingual introduction on page load
 
 function appendMsg(html, who) {
   const div = document.createElement('div');
@@ -174,9 +308,11 @@ async function sendMessage(message) {
     `).join('');
 
     appendMsg(`${data.reply}${recsHtml}`, 'ai');
+    speak(data.reply, isMl ? 'ml-IN' : 'en-IN');
   } catch (e) {
     thinking.remove();
-    appendMsg(isMl ? "ക്ഷമിക്കണം, ഇപ്പോൾ സെർവറുമായി ബന്ധപ്പെടാൻ സാധിച്ചില്ല. ദയവായി അല്പം കഴിഞ്ഞ് ശ്രമിക്കൂ." : "Sorry, I couldn't reach the kitchen right now. Try again in a moment.", 'ai');
+    const errText = isMl ? "ക്ഷമിക്കണം, ഇപ്പോൾ സെർവറുമായി ബന്ധപ്പെടാൻ സാധിച്ചില്ല. ദയവായി അല്പം കഴിഞ്ഞ് ശ്രമിക്കൂ." : "Sorry, I couldn't reach the kitchen right now. Try again in a moment.";
+    appendMsg(errText, 'ai');
   }
 }
 
@@ -251,6 +387,8 @@ function startRecording(e) {
   }
 
   if (isRecording) return;
+
+  stopSpeaking(); // don't let the bot talk over (or get recorded by) the visitor's mic
 
   recordedTranscript = '';
   chatInput.value = '';
